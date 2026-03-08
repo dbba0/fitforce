@@ -1,0 +1,22 @@
+{
+  "name": "fitpulse-monorepo",
+  "private": true,
+  "version": "1.1.0",
+  "workspaces": [
+    "apps/api",
+    "apps/mobile"
+  ],
+  "scripts": {
+    "dev:api": "npm --workspace apps/api run dev",
+    "dev:mobile": "npm --workspace apps/mobile run start",
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:mobile\"",
+    "seed": "npm --workspace apps/api run seed"
+  },
+  "overrides": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

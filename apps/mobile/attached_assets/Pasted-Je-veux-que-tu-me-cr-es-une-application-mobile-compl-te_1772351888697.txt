@@ -1,0 +1,135 @@
+Je veux que tu me crées une application mobile complète de fitness moderne, professionnelle et prête à être publiée sur l’App Store et Google Play.
+
+🎯 Objectif de l’application
+
+Créer une app de sport avec :
+	•	Mode Entraînement à la maison
+	•	Mode Entraînement à la salle
+	•	Système de goals tracking
+	•	Suivi de progression complet
+	•	Design moderne type app premium
+
+⸻
+
+🔥 1️⃣ Fonctionnalités principales
+
+👤 1. Système utilisateur
+	•	Inscription / Connexion (email + Google + Apple)
+	•	Profil utilisateur :
+	•	Nom
+	•	Âge
+	•	Poids
+	•	Taille
+	•	Niveau (débutant, intermédiaire, avancé)
+	•	Objectif (prise de masse, perte de poids, endurance, recomposition)
+
+⸻
+
+🏠 2. Mode Entraînement à la Maison
+	•	Programmes sans matériel
+	•	Programmes avec haltères
+	•	Programmes HIIT
+	•	Programmes abdos
+	•	Programmes full body
+	•	Vidéos explicatives
+	•	Minuteur intégré
+	•	Compteur de répétitions
+	•	Système de progression automatique
+
+⸻
+
+🏋️ 3. Mode Entraînement à la Salle
+	•	Programmes Push Pull Legs
+	•	Upper / Lower
+	•	Split 5 jours
+	•	Full Body
+	•	Exercices avec machines
+	•	Exercices avec poids libres
+	•	Ajout manuel de séries / reps / charges
+	•	Historique des performances
+	•	Graphique d’évolution des charges
+
+⸻
+
+🎯 4. Goals Tracking (Très important)
+	•	Objectifs personnalisables :
+	•	Poids cible
+	•	Nombre de séances par semaine
+	•	Calories brûlées
+	•	Tour de taille
+	•	Progress bar dynamique
+	•	Graphiques hebdomadaires / mensuels
+	•	Notifications motivantes
+	•	Streak (jours consécutifs d’entraînement)
+
+⸻
+
+📊 5. Dashboard
+	•	Résumé des stats :
+	•	Séances totales
+	•	Minutes entraînées
+	•	Calories brûlées
+	•	Meilleure performance
+	•	Graphiques animés
+	•	Comparaison semaine précédente
+
+⸻
+
+🥗 6. Bonus Premium
+	•	Suivi nutrition simple
+	•	Calcul automatique des calories
+	•	Suggestions de repas selon objectif
+	•	Hydratation tracker
+	•	Rappels intelligents
+
+⸻
+
+🎨 Design & UX
+	•	Design moderne style :
+	•	Interface minimaliste type Nike Training Club
+	•	Animations fluides
+	•	Mode sombre / clair
+	•	Icônes modernes
+	•	UX intuitive
+	•	Page d’accueil dynamique avec motivation quotidienne
+
+⸻
+
+⚙️ Technique
+	•	Technologie recommandée : React Native ou Flutter
+	•	Backend : Node.js + MongoDB ou Firebase
+	•	Authentification sécurisée
+	•	Base de données structurée
+	•	API REST complète
+	•	Code propre et modulaire
+	•	Architecture scalable
+	•	Version MVP + version Premium
+
+⸻
+
+💰 Modèle économique
+	•	Version gratuite limitée
+	•	Abonnement Premium mensuel
+	•	Paiement intégré (Stripe / Apple Pay / Google Pay)
+
+⸻
+
+📦 Ce que je veux que tu génères
+	•	Structure complète du projet
+	•	Code frontend
+	•	Code backend
+	•	Base de données
+	•	Exemple d’exercices
+	•	Exemple de programmes
+	•	Design des écrans
+	•	Architecture des dossiers
+	•	Explication du déploiement
+
+⸻
+
+🚀 But final
+
+Créer une application équivalente ou meilleure que :
+	•	Nike Training Club
+	•	Freeletics
+	•	MyFitnessPal
