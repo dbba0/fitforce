@@ -21,6 +21,7 @@ import { Colors } from "@/constants/colors";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { EXERCISES, MuscleGroup } from "@/data/exercises";
 import { PROGRAMS, Program } from "@/data/programs";
+import { useWorkout } from "@/contexts/WorkoutContext";
 import {
   createEmptyProgram,
   createId,
@@ -32,12 +33,25 @@ import {
 } from "@/utils/customProgramStorage";
 
 type UnitSystem = "kg" | "lbs";
-type MuscleFilter = "all" | MuscleGroup;
+type MuscleFilterMode = "any" | "all";
 
 const UNIT_KEY = "@fitforce_builder_units";
 const LBS_PER_KG = 2.20462;
 
-const MUSCLE_FILTERS: MuscleFilter[] = ["all", "chest", "back", "shoulders", "arms", "core", "legs"];
+const MUSCLE_GROUPS: MuscleGroup[] = ["chest", "back", "shoulders", "arms", "core", "legs"];
+
+const OBJECTIVE_PRESETS = {
+  massMuscle: { sets: 4, reps: "8-12", restSeconds: 75, weightFactor: 0.55 },
+  recomposition: { sets: 4, reps: "10-12", restSeconds: 60, weightFactor: 0.45 },
+  weightLoss: { sets: 3, reps: "12-15", restSeconds: 45, weightFactor: 0.35 },
+  endurance: { sets: 3, reps: "15-20", restSeconds: 30, weightFactor: 0.3 },
+} as const;
+
+const LEVEL_MULTIPLIER: Record<string, number> = {
+  beginner: 0.85,
+  intermediate: 1,
+  advanced: 1.15,
+};
 
 function getExerciseName(exerciseId: string, language: string): string {
   const ex = EXERCISES.find((item) => item.id === exerciseId);
@@ -98,8 +112,30 @@ function parseWeightInput(input: string, unit: UnitSystem): number {
   return unit === "kg" ? n : Number(lbsToKg(n).toFixed(2));
 }
 
+function normalizeFocusToMuscle(focus: string | undefined): MuscleGroup | null {
+  const value = (focus || "").toLowerCase();
+  if (!value) return null;
+  if (value.includes("pec") || value.includes("chest") || value.includes("poitrine")) return "chest";
+  if (value.includes("dos") || value.includes("back")) return "back";
+  if (value.includes("epaule") || value.includes("shoulder")) return "shoulders";
+  if (value.includes("bras") || value.includes("arm")) return "arms";
+  if (value.includes("core") || value.includes("abdo") || value.includes("gainage")) return "core";
+  if (value.includes("jambe") || value.includes("leg")) return "legs";
+  return null;
+}
+
+function shouldSuggestWeight(equipment: string): boolean {
+  return ["dumbbell", "barbell", "machine", "kettlebell"].includes(equipment);
+}
+
+function roundToStep(value: number, step: number): number {
+  if (!value || !Number.isFinite(value)) return 0;
+  return Math.round(value / step) * step;
+}
+
 export default function BuilderScreen() {
   const { t, language } = useLanguage();
+  const { profile } = useWorkout();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -113,7 +149,8 @@ export default function BuilderScreen() {
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerDayId, setPickerDayId] = useState<string | null>(null);
   const [exerciseQuery, setExerciseQuery] = useState("");
-  const [pickerMuscleFilter, setPickerMuscleFilter] = useState<MuscleFilter>("all");
+  const [pickerMuscleFilters, setPickerMuscleFilters] = useState<MuscleGroup[]>([]);
+  const [pickerMatchMode, setPickerMatchMode] = useState<MuscleFilterMode>("all");
   const [unitSystem, setUnitSystem] = useState<UnitSystem>("kg");
 
   useEffect(() => {
@@ -142,16 +179,18 @@ export default function BuilderScreen() {
       mode === "cardio" ? !!ex.isCardio : !ex.isCardio
     );
     const filteredByMuscle =
-      pickerMuscleFilter === "all"
+      pickerMuscleFilters.length === 0
         ? filteredByMode
-        : filteredByMode.filter((ex) => ex.muscles.includes(pickerMuscleFilter));
+        : pickerMatchMode === "all"
+        ? filteredByMode.filter((ex) => pickerMuscleFilters.every((m) => ex.muscles.includes(m)))
+        : filteredByMode.filter((ex) => ex.muscles.some((m) => pickerMuscleFilters.includes(m)));
     const q = exerciseQuery.trim().toLowerCase();
     if (!q) return filteredByMuscle.slice(0, 80);
     return filteredByMuscle.filter((ex) => {
       const name = getExerciseName(ex.id, language).toLowerCase();
       return name.includes(q) || ex.muscles.join(" ").includes(q);
     });
-  }, [mode, exerciseQuery, language, pickerMuscleFilter]);
+  }, [mode, exerciseQuery, language, pickerMuscleFilters, pickerMatchMode]);
 
   const summary = useMemo(() => {
     const totalExercises = draft.days.reduce((acc, d) => acc + d.exercises.length, 0);
@@ -165,12 +204,28 @@ export default function BuilderScreen() {
   const openExercisePicker = (dayId: string) => {
     setPickerDayId(dayId);
     setExerciseQuery("");
-    setPickerMuscleFilter("all");
+    const focus = draft.days.find((d) => d.id === dayId)?.focus;
+    const inferred = normalizeFocusToMuscle(focus);
+    setPickerMuscleFilters(inferred ? [inferred] : []);
+    setPickerMatchMode("all");
     setPickerVisible(true);
   };
 
   const addExerciseToDay = (exerciseId: string) => {
     if (!pickerDayId) return;
+    const exercise = EXERCISES.find((ex) => ex.id === exerciseId);
+    const objective = profile?.objective || "recomposition";
+    const level = profile?.level || "beginner";
+    const preset = OBJECTIVE_PRESETS[objective as keyof typeof OBJECTIVE_PRESETS] || OBJECTIVE_PRESETS.recomposition;
+    const levelMult = LEVEL_MULTIPLIER[level] ?? 1;
+    const baseWeight = profile?.weight && profile.weight > 0 ? profile.weight : 70;
+    const weightCandidate = shouldSuggestWeight(exercise?.equipment || "")
+      ? roundToStep(baseWeight * preset.weightFactor * levelMult, 2.5)
+      : 0;
+    const defaultSets = mode === "cardio" ? 1 : preset.sets;
+    const defaultReps = mode === "cardio" ? "30-60s" : preset.reps;
+    const defaultRest = mode === "cardio" ? 30 : preset.restSeconds;
+    const defaultWeight = mode === "gym" && weightCandidate > 0 ? weightCandidate : undefined;
     setDraft((prev) => ({
       ...prev,
       days: prev.days.map((day) =>
@@ -182,10 +237,10 @@ export default function BuilderScreen() {
                 {
                   id: createId("ex"),
                   exerciseId,
-                  sets: 4,
-                  reps: "10-12",
-                  restSeconds: 75,
-                  weightKg: mode === "gym" ? 20 : undefined,
+                  sets: defaultSets,
+                  reps: defaultReps,
+                  restSeconds: defaultRest,
+                  weightKg: defaultWeight,
                 },
               ],
             }
@@ -276,8 +331,7 @@ export default function BuilderScreen() {
     await AsyncStorage.setItem(UNIT_KEY, next);
   };
 
-  const getMuscleLabel = (m: MuscleFilter) => {
-    if (m === "all") return t("allMuscles");
+  const getMuscleLabel = (m: MuscleGroup) => {
     if (m === "back") return t("backMuscle");
     return t(m as any);
   };
@@ -489,7 +543,7 @@ export default function BuilderScreen() {
               }
             />
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.muscleRow}>
-              {MUSCLE_FILTERS.filter((m) => m !== "all").map((m) => {
+              {MUSCLE_GROUPS.map((m) => {
                 const active = day.focus.toLowerCase() === m;
                 return (
                   <Pressable
@@ -652,17 +706,56 @@ export default function BuilderScreen() {
             value={exerciseQuery}
             onChangeText={setExerciseQuery}
           />
+          <View style={[styles.filterHeader, { paddingHorizontal: 20 }]}>
+            <Text style={[styles.filterLabel, { color: theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>
+              Filtres muscles
+            </Text>
+            <View style={styles.filterMode}>
+              {(["any", "all"] as MuscleFilterMode[]).map((modeKey) => {
+                const active = pickerMatchMode === modeKey;
+                return (
+                  <Pressable
+                    key={`mode_${modeKey}`}
+                    onPress={() => setPickerMatchMode(modeKey)}
+                    style={[styles.filterModeBtn, { backgroundColor: active ? theme.accent : theme.card }]}
+                  >
+                    <Text style={{ color: active ? "#fff" : theme.textSecondary, fontFamily: "Outfit_600SemiBold", fontSize: 11 }}>
+                      {modeKey === "all" ? "Tous" : "Au moins 1"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={[styles.muscleRow, { paddingHorizontal: 20 }]}
           >
-            {MUSCLE_FILTERS.map((mf) => {
-              const active = pickerMuscleFilter === mf;
+            <Pressable
+              onPress={() => setPickerMuscleFilters([])}
+              style={[
+                styles.muscleChip,
+                {
+                  borderColor: pickerMuscleFilters.length === 0 ? theme.accent : theme.border,
+                  backgroundColor: pickerMuscleFilters.length === 0 ? `${theme.accent}20` : theme.card,
+                },
+              ]}
+            >
+              <Text style={{ color: pickerMuscleFilters.length === 0 ? theme.accent : theme.textSecondary, fontFamily: "Outfit_600SemiBold", fontSize: 12 }}>
+                Tous
+              </Text>
+            </Pressable>
+            {MUSCLE_GROUPS.map((mf) => {
+              const active = pickerMuscleFilters.includes(mf);
               return (
                 <Pressable
                   key={`picker_${mf}`}
-                  onPress={() => setPickerMuscleFilter(mf)}
+                  onPress={() =>
+                    setPickerMuscleFilters((prev) =>
+                      prev.includes(mf) ? prev.filter((m) => m !== mf) : [...prev, mf]
+                    )
+                  }
                   style={[
                     styles.muscleChip,
                     {
@@ -843,6 +936,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
+  },
+  filterHeader: {
+    marginTop: 8,
+    marginBottom: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  filterLabel: { fontSize: 12 },
+  filterMode: { flexDirection: "row", gap: 6 },
+  filterModeBtn: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   modalTitle: { fontSize: 20 },
   pickerRow: {

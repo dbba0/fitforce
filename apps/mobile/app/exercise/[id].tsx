@@ -1,94 +1,90 @@
 import React, { useState } from "react";
 import {
+  Dimensions,
+  Image,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
-  ScrollView,
-  Pressable,
   useColorScheme,
-  Platform,
-  Dimensions,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
+import { LinearGradient } from "expo-linear-gradient";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getExerciseById } from "@/data/exercises";
 import { Colors } from "@/constants/colors";
+import ExerciseCoachFigure from "@/components/ExerciseCoachFigure";
 
-type DetailTab = "instructions" | "tips" | "mistakes";
+type DetailTab = "video" | "muscle" | "tutorial";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const VIDEO_HEIGHT = Math.round(SCREEN_WIDTH * 9 / 16);
+const MEDIA_HEIGHT = Math.max(220, Math.round(SCREEN_WIDTH * 0.62));
 
-function MuscleChip({ muscle, color }: { muscle: string; color: string }) {
-  const { t } = useLanguage();
-  return (
-    <View style={[styles.chip, { backgroundColor: color + "20", borderColor: color + "40" }]}>
-      <Text style={[styles.chipText, { color, fontFamily: "Outfit_500Medium" }]}>{t((muscle === "back" ? "backMuscle" : muscle) as any)}</Text>
-    </View>
-  );
-}
+const MUSCLE_LABELS: Record<string, string> = {
+  chest: "Pectoraux",
+  back: "Dos",
+  shoulders: "Epaules",
+  arms: "Bras",
+  core: "Core",
+  legs: "Jambes",
+};
 
-function StepItem({ number, text, total, color }: { number: number; text: string; total: number; color: string }) {
-  const colorScheme = useColorScheme();
-  return (
-    <Animated.View entering={FadeInDown.delay(number * 60).duration(350)} style={styles.stepRow}>
-      <View style={[styles.stepNumber, { backgroundColor: color }]}>
-        <Text style={[styles.stepNumberText, { fontFamily: "Outfit_700Bold" }]}>{number}</Text>
-      </View>
-      <Text style={[styles.stepText, { color: (colorScheme === "dark" ? Colors.dark : Colors.light).text, fontFamily: "Outfit_400Regular" }]}>{text}</Text>
-    </Animated.View>
-  );
-}
+const FIGURE_THEME = {
+  card: "#F2F4F8",
+  border: "#D8DCE7",
+  text: "#1B1D25",
+  textSecondary: "#616879",
+  accent: "#266CFF",
+};
 
-function TipItem({ text, icon, color }: { text: string; icon: string; color: string }) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
-  return (
-    <View style={[styles.tipRow, { backgroundColor: color + "10" }]}>
-      <Ionicons name={icon as any} size={18} color={color} />
-      <Text style={[styles.tipText, { color: theme.text, fontFamily: "Outfit_400Regular" }]}>{text}</Text>
-    </View>
-  );
+function secondsToClock(total: number) {
+  const safe = Math.max(0, total);
+  const mm = String(Math.floor(safe / 60)).padStart(2, "0");
+  const ss = String(safe % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
 }
 
 export default function ExerciseDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, language } = useLanguage();
-  const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const theme = isDark ? Colors.dark : Colors.light;
-  const [activeTab, setActiveTab] = useState<DetailTab>("instructions");
+  const insets = useSafeAreaInsets();
+
+  const [activeTab, setActiveTab] = useState<DetailTab>("muscle");
   const [videoError, setVideoError] = useState(false);
+  const [useInlineVideo, setUseInlineVideo] = useState(Platform.OS !== "ios");
 
   const exercise = getExerciseById(id ?? "");
 
+  const [durationSec, setDurationSec] = useState(() => (exercise ? Math.max(15, exercise.durationMin * 60) : 30));
+
   if (!exercise) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background, justifyContent: "center", alignItems: "center" }]}>
-        <Text style={[styles.errorText, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>{t("errorLoading")}</Text>
-        <Pressable onPress={() => router.back()} style={[styles.retryBtn, { backgroundColor: theme.accent }]}>
-          <Text style={[styles.retryText, { fontFamily: "Outfit_600SemiBold" }]}>{t("retry")}</Text>
+      <View style={[styles.fallback, { backgroundColor: theme.background }]}> 
+        <Text style={[styles.fallbackText, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>{t("errorLoading")}</Text>
+        <Pressable onPress={() => router.back()} style={[styles.closeBtn, { backgroundColor: theme.accent }]}> 
+          <Text style={[styles.closeBtnText, { fontFamily: "Outfit_700Bold" }]}>{t("retry")}</Text>
         </Pressable>
       </View>
     );
   }
 
   const exT = exercise.translations[language as keyof typeof exercise.translations] ?? exercise.translations.en;
-  const MUSCLE_COLORS: Record<string, string> = {
-    chest: "#FF6B2C",
-    back: "#4CAF7D",
-    shoulders: "#2196F3",
-    arms: "#9C27B0",
-    core: "#6C63FF",
-    legs: "#E91E8C",
-  };
+
+  const instructionText = exT.steps.slice(0, 2).join(" ");
+  const tutorialBullets = [...exT.steps.slice(0, 2), ...exT.tips.slice(0, 2)];
+  const youtubeUrl = `https://www.youtube.com/watch?v=${exercise.youtubeId}`;
+  const youtubeThumb = `https://img.youtube.com/vi/${exercise.youtubeId}/hqdefault.jpg`;
 
   const youtubeHtml = `
 <!DOCTYPE html>
@@ -103,7 +99,6 @@ body { background: #000; overflow: hidden; }
   width: 100%;
   padding-bottom: 56.25%;
   height: 0;
-  overflow: hidden;
 }
 .video-container iframe {
   position: absolute;
@@ -127,22 +122,58 @@ body { background: #000; overflow: hidden; }
 </html>
 `;
 
-  const difficultyColor = exercise.difficulty === "beginner"
-    ? theme.success
-    : exercise.difficulty === "intermediate"
-    ? theme.warning
-    : theme.error;
+  const tabButton = (tab: DetailTab, label: string) => (
+    <Pressable
+      key={tab}
+      onPress={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        setActiveTab(tab);
+      }}
+      style={[styles.segmentBtn, activeTab === tab && styles.segmentBtnActive]}
+    >
+      <Text
+        style={[
+          styles.segmentText,
+          {
+            color: activeTab === tab ? "#FFFFFF" : "#9EA3AE",
+            fontFamily: "Outfit_700Bold",
+          },
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <LinearGradient colors={["#0B1224", "#090A12"]} style={styles.root}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: Math.max(32, insets.bottom + 14) }}
       >
-        <View style={[styles.videoContainer, { backgroundColor: "#000" }]}>
-          {!videoError ? (
-            <>
-              {Platform.OS !== "web" ? (
+        <Animated.View entering={FadeInUp.duration(350)} style={[styles.sheet, { backgroundColor: "#17181D" }]}> 
+          <View style={styles.handle} />
+
+          <View style={styles.headerRow}>
+            <Text style={[styles.title, { fontFamily: "Outfit_800ExtraBold" }]}>{exT.name}</Text>
+            <Pressable
+              onPress={() => setActiveTab("tutorial")}
+              style={({ pressed }) => [styles.notesBtn, { opacity: pressed ? 0.75 : 1 }]}
+            >
+              <Text style={[styles.notesText, { fontFamily: "Outfit_500Medium" }]}>Remarques</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.mediaCard}>
+            {activeTab === "video" && useInlineVideo && !videoError ? (
+              Platform.OS === "web" ? (
+                <iframe
+                  src={`https://www.youtube.com/embed/${exercise.youtubeId}?rel=0&modestbranding=1`}
+                  style={{ width: "100%", height: MEDIA_HEIGHT, border: "none", borderRadius: 18 } as any}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              ) : (
                 <WebView
                   source={{ html: youtubeHtml }}
                   style={styles.webview}
@@ -154,225 +185,350 @@ body { background: #000; overflow: hidden; }
                   javaScriptEnabled
                   domStorageEnabled
                 />
-              ) : (
-                <iframe
-                  src={`https://www.youtube.com/embed/${exercise.youtubeId}?rel=0&modestbranding=1`}
-                  style={{ width: "100%", height: VIDEO_HEIGHT, border: "none" } as any}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
+              )
+            ) : null}
+
+            {activeTab === "video" && (!useInlineVideo || videoError) ? (
+              <View style={styles.videoFallback}>
+                <Image source={{ uri: youtubeThumb }} style={styles.videoThumb} resizeMode="cover" />
+                <View style={styles.videoOverlay}>
+                  <Text style={[styles.videoFallbackTitle, { fontFamily: "Outfit_700Bold" }]}>Video</Text>
+                  <Text style={[styles.videoFallbackText, { fontFamily: "Outfit_400Regular" }]}>Lecture integree indisponible.</Text>
+                  <View style={styles.videoActions}>
+                    <Pressable
+                      onPress={() => Linking.openURL(youtubeUrl)}
+                      style={({ pressed }) => [styles.videoActionBtn, { opacity: pressed ? 0.85 : 1 }]}
+                    >
+                      <Ionicons name="logo-youtube" size={18} color="#FF2D2D" />
+                      <Text style={[styles.videoActionText, { fontFamily: "Outfit_700Bold" }]}>Regarder sur YouTube</Text>
+                    </Pressable>
+                    {!useInlineVideo && (
+                      <Pressable
+                        onPress={() => {
+                          setVideoError(false);
+                          setUseInlineVideo(true);
+                        }}
+                        style={({ pressed }) => [styles.videoInlineBtn, { opacity: pressed ? 0.85 : 1 }]}
+                      >
+                        <Text style={[styles.videoInlineText, { fontFamily: "Outfit_700Bold" }]}>Lire ici</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
+            {activeTab === "muscle" ? (
+              <View style={styles.visualWrap}>
+                <ExerciseCoachFigure
+                  muscles={exercise.muscles}
+                  title="Vue musculaire"
+                  subtitle={exT.description}
+                  theme={FIGURE_THEME}
+                  highlightColor={"#FF5E38"}
                 />
-              )}
-            </>
-          ) : (
-            <View style={[styles.videoPlaceholder, { height: VIDEO_HEIGHT }]}>
-              <MaterialCommunityIcons name="video-off-outline" size={40} color="#555" />
-              <Text style={[styles.noVideoText, { fontFamily: "Outfit_500Medium" }]}>{t("noVideo")}</Text>
-            </View>
-          )}
+                <View style={styles.stopBadge}>
+                  <Ionicons name="stop" size={14} color="#3D63FF" />
+                </View>
+              </View>
+            ) : null}
 
-          <Animated.View
-            entering={FadeInUp.duration(300)}
-            style={[styles.backBtn, { top: insets.top + 8, backgroundColor: "rgba(0,0,0,0.6)" }]}
-          >
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.back();
-              }}
-              hitSlop={12}
-            >
-              <Ionicons name="chevron-down" size={24} color="#fff" />
-            </Pressable>
-          </Animated.View>
-        </View>
+            {activeTab === "tutorial" || videoError ? (
+              <View style={styles.tutorialCard}>
+                {tutorialBullets.map((line, idx) => (
+                  <View key={`${line}-${idx}`} style={styles.tutorialRow}>
+                    <View style={styles.dot} />
+                    <Text style={[styles.tutorialText, { fontFamily: "Outfit_400Regular" }]}>{line}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+          </View>
 
-        <View style={styles.content}>
-          <Animated.View entering={FadeInDown.duration(400)} style={styles.exHeader}>
-            <View>
-              <Text style={[styles.exName, { color: theme.text, fontFamily: "Outfit_800ExtraBold" }]}>
-                {exT.name}
-              </Text>
-              <Text style={[styles.exDescription, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
-                {exT.description}
-              </Text>
-            </View>
-          </Animated.View>
+          <View style={styles.segmented}>
+            {tabButton("video", "Video")}
+            {tabButton("muscle", "Muscle")}
+            {tabButton("tutorial", "Tutoriel")}
+          </View>
 
-          <Animated.View entering={FadeInDown.delay(80).duration(400)} style={styles.metaRow}>
-            <View style={[styles.metaCard, { backgroundColor: theme.card }]}>
-              <Ionicons name="time-outline" size={18} color={theme.accent} />
-              <Text style={[styles.metaValue, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>{exercise.durationMin}</Text>
-              <Text style={[styles.metaUnit, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>{t("minutes")}</Text>
-            </View>
-            <View style={[styles.metaCard, { backgroundColor: theme.card }]}>
-              <Ionicons name="flame-outline" size={18} color={theme.warning} />
-              <Text style={[styles.metaValue, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>{exercise.calories}</Text>
-              <Text style={[styles.metaUnit, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>{t("kcal")}</Text>
-            </View>
-            <View style={[styles.metaCard, { backgroundColor: theme.card }]}>
-              <Ionicons name="barbell-outline" size={18} color={difficultyColor} />
-              <Text style={[styles.metaValue, { color: difficultyColor, fontFamily: "Outfit_700Bold" }]} numberOfLines={1}>
-                {t(exercise.difficulty)}
-              </Text>
+          <Animated.View entering={FadeInDown.duration(350).delay(80)} style={styles.durationRow}>
+            <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Outfit_800ExtraBold" }]}>DUREE (SECONDES)</Text>
+            <View style={styles.counterRow}>
+              <Pressable
+                onPress={() => setDurationSec((s) => Math.max(15, s - 15))}
+                style={({ pressed }) => [styles.roundCtl, { opacity: pressed ? 0.85 : 1 }]}
+              >
+                <Ionicons name="remove" size={20} color="#FFFFFF" />
+              </Pressable>
+
+              <Text style={[styles.counterValue, { fontFamily: "Outfit_800ExtraBold" }]}>{secondsToClock(durationSec)}</Text>
+
+              <Pressable
+                onPress={() => setDurationSec((s) => Math.min(7200, s + 15))}
+                style={({ pressed }) => [styles.roundCtl, { opacity: pressed ? 0.85 : 1 }]}
+              >
+                <Ionicons name="add" size={20} color="#FFFFFF" />
+              </Pressable>
             </View>
           </Animated.View>
 
-          <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.musclesSection}>
-            <Text style={[styles.sectionLabel, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
-              {t("musclesWorked")}
-            </Text>
-            <View style={styles.muscleChips}>
-              {exercise.muscles.map((m) => (
-                <MuscleChip key={m} muscle={m} color={MUSCLE_COLORS[m] ?? theme.accent} />
+          <Animated.View entering={FadeInDown.duration(350).delay(120)}>
+            <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Outfit_800ExtraBold" }]}>INSTRUCTION</Text>
+            <Text style={[styles.paragraph, { fontFamily: "Outfit_400Regular" }]}>{instructionText}</Text>
+          </Animated.View>
+
+          <Animated.View entering={FadeInDown.duration(350).delay(140)}>
+            <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Outfit_800ExtraBold" }]}>ZONE CIBLEE</Text>
+            <View style={styles.zoneWrap}>
+              {exercise.muscles.map((muscle) => (
+                <View key={muscle} style={styles.zoneChip}>
+                  <Text style={[styles.zoneChipText, { fontFamily: "Outfit_700Bold" }]}>{MUSCLE_LABELS[muscle] ?? muscle}</Text>
+                </View>
               ))}
             </View>
           </Animated.View>
 
-          <Animated.View entering={FadeInDown.delay(160).duration(400)} style={[styles.tabBar, { backgroundColor: theme.card }]}>
-            {(["instructions", "tips", "mistakes"] as DetailTab[]).map((tab) => (
-              <Pressable
-                key={tab}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setActiveTab(tab);
-                }}
-                style={[
-                  styles.tab,
-                  activeTab === tab && [styles.tabActive, { backgroundColor: theme.accent }],
-                ]}
-              >
-                <Text style={[
-                  styles.tabText,
-                  {
-                    color: activeTab === tab ? "#fff" : theme.textSecondary,
-                    fontFamily: "Outfit_600SemiBold",
-                  },
-                ]}>
-                  {t(tab as any)}
-                </Text>
-              </Pressable>
-            ))}
-          </Animated.View>
-
-          <Animated.View entering={FadeInDown.delay(200).duration(400)} style={styles.tabContent}>
-            {activeTab === "instructions" && (
-              <View style={styles.stepsList}>
-                {exT.steps.map((step, i) => (
-                  <StepItem
-                    key={i}
-                    number={i + 1}
-                    text={step}
-                    total={exT.steps.length}
-                    color={exercise.imageColor}
-                  />
-                ))}
-              </View>
-            )}
-
-            {activeTab === "tips" && (
-              <View style={styles.tipsList}>
-                {exT.tips.map((tip, i) => (
-                  <TipItem
-                    key={i}
-                    text={tip}
-                    icon="checkmark-circle-outline"
-                    color="#4CAF7D"
-                  />
-                ))}
-              </View>
-            )}
-
-            {activeTab === "mistakes" && (
-              <View style={styles.tipsList}>
-                {exT.mistakes.map((mistake, i) => (
-                  <TipItem
-                    key={i}
-                    text={mistake}
-                    icon="close-circle-outline"
-                    color="#FF4D4D"
-                  />
-                ))}
-              </View>
-            )}
-          </Animated.View>
-        </View>
+          <Pressable
+            onPress={() => router.back()}
+            style={({ pressed }) => [styles.bottomClose, { opacity: pressed ? 0.9 : 1 }]}
+          >
+            <Text style={[styles.bottomCloseText, { fontFamily: "Outfit_800ExtraBold" }]}>Fermer</Text>
+          </Pressable>
+        </Animated.View>
       </ScrollView>
-    </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  videoContainer: { width: "100%", height: VIDEO_HEIGHT, position: "relative" },
-  webview: { flex: 1, backgroundColor: "#000" },
-  videoPlaceholder: {
+  root: { flex: 1 },
+  fallback: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24 },
+  fallbackText: { fontSize: 16, marginBottom: 12 },
+  closeBtn: { borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10 },
+  closeBtnText: { color: "#fff", fontSize: 14 },
+
+  sheet: {
+    marginHorizontal: 14,
+    borderRadius: 30,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 18,
+  },
+  handle: {
+    alignSelf: "center",
+    width: 64,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#2C2E37",
+    marginBottom: 16,
+  },
+  headerRow: {
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#111",
+    justifyContent: "space-between",
+    marginBottom: 16,
     gap: 10,
   },
-  noVideoText: { color: "#555", fontSize: 14 },
-  backBtn: {
-    position: "absolute",
-    left: 16,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  content: { padding: 20 },
-  exHeader: { marginBottom: 16 },
-  exName: { fontSize: 28, marginBottom: 8 },
-  exDescription: { fontSize: 14, lineHeight: 22 },
-  metaRow: { flexDirection: "row", gap: 10, marginBottom: 20 },
-  metaCard: {
+  title: {
+    color: "#F3F5FA",
+    fontSize: 44,
+    lineHeight: 52,
     flex: 1,
-    borderRadius: 14,
-    padding: 12,
-    alignItems: "center",
-    gap: 4,
   },
-  metaValue: { fontSize: 16 },
-  metaUnit: { fontSize: 11 },
-  musclesSection: { marginBottom: 20 },
-  sectionLabel: { fontSize: 16, marginBottom: 10 },
-  muscleChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
-  chipText: { fontSize: 13 },
-  tabBar: {
+  notesBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+  notesText: {
+    color: "#9CA2B0",
+    fontSize: 17,
+    textDecorationLine: "underline",
+  },
+
+  mediaCard: {
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    minHeight: MEDIA_HEIGHT,
+    overflow: "hidden",
+    marginBottom: 14,
+  },
+  videoFallback: {
+    minHeight: MEDIA_HEIGHT,
+    position: "relative",
+    backgroundColor: "#0B0D12",
+  },
+  videoThumb: {
+    width: "100%",
+    height: MEDIA_HEIGHT,
+  },
+  videoOverlay: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: 16,
+    backgroundColor: "rgba(0,0,0,0.55)",
+  },
+  videoFallbackTitle: { color: "#FFFFFF", fontSize: 18, marginBottom: 4 },
+  videoFallbackText: { color: "#E2E8F0", fontSize: 12, marginBottom: 10 },
+  videoActions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  videoActionBtn: {
     flexDirection: "row",
-    borderRadius: 14,
-    padding: 4,
-    marginBottom: 20,
-    gap: 4,
-  },
-  tab: { flex: 1, paddingVertical: 9, borderRadius: 10, alignItems: "center" },
-  tabActive: {},
-  tabText: { fontSize: 12 },
-  tabContent: {},
-  stepsList: { gap: 12 },
-  stepRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
-  stepNumber: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
     alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  stepNumberText: { color: "#fff", fontSize: 13 },
-  stepText: { flex: 1, fontSize: 14, lineHeight: 22, paddingTop: 3 },
-  tipsList: { gap: 10 },
-  tipRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    padding: 14,
+    gap: 8,
+    backgroundColor: "#FFFFFF",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     borderRadius: 12,
   },
-  tipText: { flex: 1, fontSize: 14, lineHeight: 22 },
-  errorText: { fontSize: 16, marginBottom: 16 },
-  retryBtn: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 },
-  retryText: { color: "#fff", fontSize: 14 },
+  videoActionText: { color: "#111827", fontSize: 12 },
+  videoInlineBtn: {
+    backgroundColor: "#0F5DFF",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  videoInlineText: { color: "#FFFFFF", fontSize: 12 },
+  webview: {
+    height: MEDIA_HEIGHT,
+    backgroundColor: "#000",
+  },
+  visualWrap: {
+    minHeight: MEDIA_HEIGHT,
+    justifyContent: "center",
+    padding: 12,
+    backgroundColor: "#F3F4F6",
+  },
+  stopBadge: {
+    position: "absolute",
+    right: 14,
+    bottom: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 3,
+    borderColor: "#5E7BFF",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EEF1FF",
+  },
+  tutorialCard: {
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 10,
+    minHeight: MEDIA_HEIGHT,
+    justifyContent: "center",
+  },
+  tutorialRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 9,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 5,
+    backgroundColor: "#266CFF",
+    marginTop: 7,
+  },
+  tutorialText: {
+    flex: 1,
+    color: "#1D2130",
+    fontSize: 14,
+    lineHeight: 21,
+  },
+
+  segmented: {
+    backgroundColor: "#23252F",
+    borderRadius: 999,
+    padding: 4,
+    flexDirection: "row",
+    marginBottom: 18,
+    gap: 4,
+  },
+  segmentBtn: {
+    flex: 1,
+    borderRadius: 999,
+    paddingVertical: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  segmentBtnActive: {
+    backgroundColor: "#0F5DFF",
+  },
+  segmentText: {
+    fontSize: 17,
+  },
+
+  durationRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 20,
+    gap: 8,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    marginBottom: 10,
+  },
+  sectionBlue: {
+    color: "#0F66FF",
+  },
+  counterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  roundCtl: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#3C3F48",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  counterValue: {
+    color: "#F8FAFC",
+    fontSize: 40,
+    minWidth: 128,
+    textAlign: "center",
+  },
+
+  paragraph: {
+    color: "#E6E9F0",
+    fontSize: 17,
+    lineHeight: 30,
+    marginBottom: 20,
+  },
+
+  zoneWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 20,
+  },
+  zoneChip: {
+    borderRadius: 12,
+    backgroundColor: "#10244B",
+    borderWidth: 1,
+    borderColor: "#2A5CB3",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  zoneChipText: {
+    color: "#8DB6FF",
+    fontSize: 13,
+  },
+
+  bottomClose: {
+    backgroundColor: "#0B5DFF",
+    borderRadius: 22,
+    paddingVertical: 17,
+    alignItems: "center",
+  },
+  bottomCloseText: {
+    color: "#FFFFFF",
+    fontSize: 34,
+    lineHeight: 40,
+  },
 });

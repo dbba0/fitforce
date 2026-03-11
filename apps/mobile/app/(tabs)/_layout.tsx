@@ -28,10 +28,6 @@ function NativeTabLayout() {
         <Icon sf={{ default: "wrench.and.screwdriver", selected: "wrench.and.screwdriver.fill" }} />
         <Label>Builder</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="morphology">
-        <Icon sf={{ default: "camera.viewfinder", selected: "camera.viewfinder" }} />
-        <Label>Morpho IA</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="goals">
         <Icon sf={{ default: "target", selected: "target" }} />
         <Label>{t("goals")}</Label>
@@ -133,15 +129,6 @@ function ClassicTabLayout() {
           title: "Builder",
           tabBarIcon: ({ color }) => (
             <Ionicons name="construct-outline" size={22} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="morphology"
-        options={{
-          title: "Morpho IA",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="scan-outline" size={22} color={color} />
           ),
         }}
       />

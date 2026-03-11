@@ -7,8 +7,11 @@
     "apps/mobile"
   ],
   "scripts": {
+    "clean:ports": "kill -15 $(lsof -tiTCP:4000 -sTCP:LISTEN) 2>/dev/null || true; kill -15 $(lsof -tiTCP:8081 -sTCP:LISTEN) 2>/dev/null || true; kill -15 $(lsof -tiTCP:19000 -sTCP:LISTEN) 2>/dev/null || true",
     "dev:api": "npm --workspace apps/api run dev",
+    "dev:api:clean": "npm run clean:ports && npm --workspace apps/api run dev",
     "dev:mobile": "npm --workspace apps/mobile run start",
+    "dev:phone:go": "npm run clean:ports && /bin/zsh -lc 'npm --workspace apps/api run dev & API_PID=$!; npm --workspace apps/mobile run start:phone:lan; kill -15 $API_PID 2>/dev/null || true'",
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:mobile\"",
     "seed": "npm --workspace apps/api run seed"
   },

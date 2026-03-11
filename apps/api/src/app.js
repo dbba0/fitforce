@@ -14,7 +14,6 @@ require('./models/HydrationLog');
 require('./models/Subscription');
 require('./models/Session');
 require('./models/Post');
-require('./models/MorphologyAnalysis');
 
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -27,12 +26,38 @@ const billingRoutes = require('./routes/billingRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
 const socialRoutes = require('./routes/socialRoutes');
 const privacyRoutes = require('./routes/privacyRoutes');
-const morphologyRoutes = require('./routes/morphologyRoutes');
 
 const app = express();
 
 app.use(helmet());
-app.use(cors({ origin: clientUrl === '*' ? true : clientUrl }));
+const isProduction = process.env.NODE_ENV === 'production';
+const configuredOrigins = (clientUrl || '')
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
+
+function isAllowedLocalDevOrigin(origin) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\d{1,3}(?:\.\d{1,3}){3})(:\d+)?$/i.test(origin);
+}
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      // Non-browser clients (curl/mobile native) don't send Origin header.
+      if (!origin) return callback(null, true);
+
+      if (!isProduction) {
+        if (clientUrl === '*' || configuredOrigins.length === 0 || isAllowedLocalDevOrigin(origin)) {
+          return callback(null, true);
+        }
+        return callback(null, configuredOrigins.includes(origin));
+      }
+
+      if (clientUrl === '*') return callback(null, true);
+      return callback(null, configuredOrigins.includes(origin));
+    },
+  })
+);
 app.use(morgan('dev'));
 app.use(express.json());
 
@@ -49,7 +74,6 @@ app.use('/api/billing', billingRoutes);
 app.use('/api/sessions', sessionRoutes);
 app.use('/api', socialRoutes);
 app.use('/api/privacy', privacyRoutes);
-app.use('/api/morphology', morphologyRoutes);
 
 app.use(errorHandler);
 

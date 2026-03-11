@@ -22,6 +22,7 @@ export interface Goal {
 
 export interface WorkoutSession {
   id: string;
+  clientId?: string | null;
   programId: string;
   date: string;
   durationMin: number;
@@ -71,15 +72,32 @@ const DEFAULT_PROFILE: UserProfile = {
   objective: "massMuscle",
 };
 
-const DEFAULT_GOALS: Goal[] = [
-  { id: "g1", type: "goalWeight", current: 80, target: 75, unit: "kg" },
-  { id: "g2", type: "goalWorkoutsPerWeek", current: 2, target: 4, unit: "/ week" },
-];
+const DEFAULT_GOALS: Goal[] = [];
 
 const PROFILE_KEY = "@fitforce_profile";
 const GOALS_KEY = "@fitforce_goals";
 const SESSIONS_KEY = "@fitforce_sessions";
 const CUSTOMIZATIONS_KEY = "@fitforce_customizations";
+
+function dedupeSessions(sessions: WorkoutSession[]): WorkoutSession[] {
+  const seenIds = new Set<string>();
+  const seenKeys = new Set<string>();
+  const next: WorkoutSession[] = [];
+
+  for (const s of sessions) {
+    const id = String(s.id);
+    const clientId = s.clientId ? String(s.clientId) : "";
+    if (seenIds.has(id) || (clientId && seenIds.has(clientId))) continue;
+    const key = `${s.programId}|${s.date}|${s.durationMin}|${s.calories}|${s.type || ""}`;
+    if (seenKeys.has(key)) continue;
+    seenIds.add(id);
+    if (clientId) seenIds.add(clientId);
+    seenKeys.add(key);
+    next.push(s);
+  }
+
+  return next;
+}
 
 export function WorkoutProvider({ children }: { children: ReactNode }) {
   const { user, isAuthenticated } = useAuth();
@@ -121,6 +139,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         const serverSessions: WorkoutSession[] = (data.sessions || []).map((s: any) => ({
           id: s.id,
+          clientId: s.clientId ?? null,
           programId: s.programId,
           date: s.date,
           durationMin: s.durationMin,
@@ -131,7 +150,12 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
 
         setSessions((localSessions) => {
           const serverIds = new Set(serverSessions.map((s) => s.id));
-          const localOnly = localSessions.filter((s) => !serverIds.has(s.id));
+          const serverClientIds = new Set(serverSessions.map((s) => s.clientId).filter(Boolean) as string[]);
+          const localOnly = localSessions.filter((s) => {
+            if (serverIds.has(s.id)) return false;
+            if (s.clientId && serverClientIds.has(s.clientId)) return false;
+            return true;
+          });
 
           for (const ls of localOnly) {
             apiRequest("POST", "/api/sessions", {
@@ -141,10 +165,11 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
               calories: ls.calories,
               completed: ls.completed,
               type: ls.type || "strength",
+              clientId: ls.clientId || ls.id,
             }).catch(() => {});
           }
 
-          const merged = [...serverSessions, ...localOnly];
+          const merged = dedupeSessions([...serverSessions, ...localOnly]);
           merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
           AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(merged));
           return merged;
@@ -188,21 +213,36 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   };
 
   const addSession = async (session: Omit<WorkoutSession, "id">) => {
-    const newSession = { ...session, id: Date.now().toString() + Math.random().toString(36).substr(2, 6) };
+    const clientId = `client_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    const newSession = { ...session, id: clientId, clientId };
     const updated = [newSession, ...sessions];
     setSessions(updated);
     await AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(updated));
 
     if (isAuthenticated && user) {
       try {
-        await apiRequest("POST", "/api/sessions", {
+        const res = await apiRequest("POST", "/api/sessions", {
           programId: session.programId,
           date: session.date,
           durationMin: session.durationMin,
           calories: session.calories,
           completed: session.completed,
           type: session.type || "strength",
+          clientId,
         });
+        const data = await res.json();
+        const serverSession = data?.session;
+        if (serverSession?.id) {
+          setSessions((prev) => {
+            const next = prev.map((s) =>
+              s.clientId === clientId || s.id === clientId
+                ? { ...s, id: serverSession.id, clientId: serverSession.clientId ?? clientId }
+                : s
+            );
+            AsyncStorage.setItem(SESSIONS_KEY, JSON.stringify(next));
+            return next;
+          });
+        }
       } catch {
       }
     }
