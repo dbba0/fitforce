@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const Exercise = require('../models/Exercise');
 const Program = require('../models/Program');
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/fitpulse';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/fitforce';
 
 const exercises = [
   {

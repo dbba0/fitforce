@@ -1,50 +1,84 @@
-import React, { useState, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  FlatList,
+  Keyboard,
+  Platform,
+  Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
-  View,
-  FlatList,
-  Pressable,
   TextInput,
-  Modal,
-  Platform,
   useColorScheme,
-  RefreshControl,
-  Keyboard,
-  TouchableWithoutFeedback,
+  View,
 } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
-import { router } from "expo-router";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocalSearchParams } from "expo-router";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useWorkout } from "@/contexts/WorkoutContext";
+import {
+  BottomSheet,
+  Card,
+  EmptyState,
+  IconButton,
+  PillTabs,
+  PostCard,
+  PrimaryButton,
+  SkeletonCard,
+  SectionLabel,
+} from "@/components/ui";
 import { apiRequest, queryClient } from "@/lib/query-client";
+import { TranslationKey } from "@/lib/i18n";
 import { Colors } from "@/constants/colors";
+import { Typography } from "@/constants/typography";
+import { PROGRAMS } from "@/data/programs";
 
 type PostType = "workout" | "achievement" | "progress" | "update";
 
-const POST_TYPE_ICONS: Record<PostType, keyof typeof Ionicons.glyphMap> = {
-  workout: "barbell-outline",
-  achievement: "trophy-outline",
-  progress: "trending-up-outline",
-  update: "chatbubble-outline",
+type FeedPost = {
+  id: string;
+  type: PostType;
+  content: string;
+  workoutData?: {
+    durationMin?: number;
+    calories?: number;
+    programId?: string;
+    type?: string;
+  } | null;
+  createdAt: string;
+  author?: {
+    id?: string;
+    displayName?: string;
+  } | null;
+  likeCount?: number;
+  likedByMe?: boolean;
 };
 
-const POST_TYPE_COLORS: Record<PostType, string> = {
-  workout: "#FF6B2C",
-  achievement: "#FFD700",
-  progress: "#4CAF50",
-  update: "#2196F3",
+const TYPE_VARIANT: Record<PostType, "ember" | "mint" | "gold" | "sky"> = {
+  workout: "ember",
+  achievement: "gold",
+  progress: "mint",
+  update: "sky",
 };
 
-function timeAgo(dateStr: string, t: (k: any) => string): string {
+function getInitials(name: string): string {
+  return (name || "?")
+    .split(" ")
+    .filter(Boolean)
+    .map((item) => item[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+function timeAgo(dateStr: string, t: (key: TranslationKey) => string): string {
   const now = Date.now();
   const then = new Date(dateStr).getTime();
-  const diffMin = Math.floor((now - then) / 60000);
+  const diffMin = Math.max(0, Math.floor((now - then) / 60000));
   if (diffMin < 1) return t("justNow");
   if (diffMin < 60) return `${diffMin}m`;
   const diffH = Math.floor(diffMin / 60);
@@ -54,9 +88,17 @@ function timeAgo(dateStr: string, t: (k: any) => string): string {
   return `${Math.floor(diffD / 7)}w`;
 }
 
-function PostCard({ post, t, theme, language }: { post: any; t: any; theme: any; language: string }) {
+function readParam(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return typeof value === "string" ? value : undefined;
+}
+
+function FeedPostItem({ post }: { post: FeedPost }) {
+  const { t } = useLanguage();
   const { user } = useAuth();
-  const isOwn = user?.id === post.author?.id;
+
+  const isOwnPost = user?.id && post.author?.id && user.id === post.author.id;
+  const authorName = post.author?.displayName || t("unknownUser");
 
   const likeMutation = useMutation({
     mutationFn: async () => {
@@ -77,218 +119,290 @@ function PostCard({ post, t, theme, language }: { post: any; t: any; theme: any;
     },
   });
 
-  const postType = (post.type || "update") as PostType;
-  const typeColor = POST_TYPE_COLORS[postType] || "#2196F3";
-  const typeIcon = POST_TYPE_ICONS[postType] || "chatbubble-outline";
+  const workoutSummary = useMemo(() => {
+    if (!post.workoutData) return undefined;
 
-  const initials = (post.author?.displayName || "?")
-    .split(" ")
-    .map((w: string) => w[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+    const program = PROGRAMS.find((item) => item.id === post.workoutData?.programId);
+    const programLabel = program ? t(program.nameKey as TranslationKey) : t("workout");
+
+    return [
+      {
+        value: `${post.workoutData.durationMin ?? 0} ${t("minutes")}`,
+        label: t("sessionDurationLabel"),
+      },
+      {
+        value: `${post.workoutData.calories ?? 0} ${t("kcal")}`,
+        label: t("sessionBurnedLabel"),
+      },
+      {
+        value: programLabel,
+        label: t("programs"),
+      },
+    ];
+  }, [post.workoutData, t]);
 
   return (
-    <View style={[styles.postCard, { backgroundColor: theme.card }]}>
-      <View style={styles.postHeader}>
-        <Pressable
-          onPress={() => {
-            if (post.author?.id) {
-              router.push({ pathname: "/user/[id]", params: { id: post.author.id } });
-            }
-          }}
-          style={styles.postAuthorRow}
-        >
-          <LinearGradient
-            colors={[typeColor, typeColor + "AA"]}
-            style={styles.avatar}
-          >
-            <Text style={[styles.avatarText, { fontFamily: "Outfit_700Bold" }]}>{initials}</Text>
-          </LinearGradient>
-          <View style={styles.postAuthorInfo}>
-            <Text style={[styles.postAuthorName, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>
-              {post.author?.displayName || "Unknown"}
-            </Text>
-            <View style={styles.postMetaRow}>
-              <View style={[styles.typeBadge, { backgroundColor: typeColor + "20" }]}>
-                <Ionicons name={typeIcon} size={10} color={typeColor} />
-                <Text style={[styles.typeBadgeText, { color: typeColor, fontFamily: "Outfit_500Medium" }]}>
-                  {t(postType)}
-                </Text>
-              </View>
-              <Text style={[styles.postTime, { color: theme.textMuted, fontFamily: "Outfit_400Regular" }]}>
-                {timeAgo(post.createdAt, t)}
-              </Text>
-            </View>
-          </View>
-        </Pressable>
-        {isOwn && (
-          <Pressable
-            onPress={() => {
+    <PostCard
+      post={{
+        author: authorName,
+        initials: getInitials(authorName),
+        content: post.content,
+        type: post.type,
+        typeLabel: t(post.type as TranslationKey),
+        badgeLabel: t(post.type as TranslationKey).toUpperCase(),
+        badgeVariant: TYPE_VARIANT[post.type],
+        timeLabel: timeAgo(post.createdAt, t),
+        workoutSummary,
+        likeCount: post.likeCount || 0,
+        commentCount: 0,
+        liked: !!post.likedByMe,
+      }}
+      onLike={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        likeMutation.mutate();
+      }}
+      onComment={() => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      }}
+      onDelete={
+        isOwnPost
+          ? () => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               deleteMutation.mutate();
-            }}
-            style={styles.deleteBtn}
-          >
-            <Ionicons name="trash-outline" size={16} color={theme.textMuted} />
-          </Pressable>
-        )}
-      </View>
-
-      <Text style={[styles.postContent, { color: theme.text, fontFamily: "Outfit_400Regular" }]}>
-        {post.content}
-      </Text>
-
-      {post.workoutData && (
-        <View style={[styles.workoutDataCard, { backgroundColor: theme.border }]}>
-          <View style={styles.workoutDataRow}>
-            <Ionicons name="time-outline" size={14} color={theme.accent} />
-            <Text style={[styles.workoutDataText, { color: theme.text, fontFamily: "Outfit_500Medium" }]}>
-              {post.workoutData.durationMin} {t("minutes")}
-            </Text>
-          </View>
-          <View style={styles.workoutDataRow}>
-            <Ionicons name="flame-outline" size={14} color={theme.accent} />
-            <Text style={[styles.workoutDataText, { color: theme.text, fontFamily: "Outfit_500Medium" }]}>
-              {post.workoutData.calories} {t("kcal")}
-            </Text>
-          </View>
-          {post.workoutData.type && (
-            <View style={styles.workoutDataRow}>
-              <Ionicons name="barbell-outline" size={14} color={theme.accent} />
-              <Text style={[styles.workoutDataText, { color: theme.text, fontFamily: "Outfit_500Medium" }]}>
-                {post.workoutData.type === "cardio" ? t("cardio") : t("strength")}
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
-
-      <View style={styles.postActions}>
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            likeMutation.mutate();
-          }}
-          style={styles.likeBtn}
-        >
-          <Ionicons
-            name={post.likedByMe ? "heart" : "heart-outline"}
-            size={20}
-            color={post.likedByMe ? "#FF4444" : theme.textMuted}
-          />
-          <Text style={[styles.likeCount, {
-            color: post.likedByMe ? "#FF4444" : theme.textMuted,
-            fontFamily: "Outfit_500Medium",
-          }]}>
-            {post.likeCount || 0}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
+            }
+          : undefined
+      }
+      style={styles.postCard}
+    />
   );
 }
 
-function GuestPrompt({ t, theme, insets }: { t: any; theme: any; insets: any }) {
+function GuestPrompt() {
+  const { t } = useLanguage();
   const { logout } = useAuth();
-  const webTopPadding = Platform.OS === "web" ? 67 : 0;
-  return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.header, { paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16 }]}>
-        <Text style={[styles.title, { color: theme.text, fontFamily: "Outfit_800ExtraBold" }]}>
-          {t("feed")}
-        </Text>
-      </View>
-      <View style={styles.guestPromptWrap}>
-        <Ionicons name="lock-closed-outline" size={48} color={theme.textMuted} />
-        <Text style={[styles.guestPromptTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
-          {t("loginToAccess")}
-        </Text>
-        <Text style={[styles.guestPromptText, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
-          {t("guestModePrompt")}
-        </Text>
-        <Pressable
-          onPress={() => logout()}
-          style={({ pressed }) => [styles.guestLoginBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.85 : 1 }]}
-        >
-          <Ionicons name="log-in-outline" size={18} color="#fff" />
-          <Text style={[styles.guestLoginBtnText, { fontFamily: "Outfit_700Bold" }]}>{t("login")}</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
-
-export default function FeedScreen() {
-  const { t, language } = useLanguage();
-  const { isGuest } = useAuth();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const theme = isDark ? Colors.dark : Colors.light;
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [postContent, setPostContent] = useState("");
-  const [postType, setPostType] = useState<PostType>("update");
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background }]}> 
+      <View style={[styles.header, { paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16 }]}> 
+        <Text
+          style={[styles.title, { color: theme.text, fontFamily: Typography.titleStrong }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.82}
+        >
+          {t("communityTitle")}
+        </Text>
+      </View>
 
-  const { data, isLoading, refetch } = useQuery<{ posts: any[] }>({
+      <View style={styles.guestPromptWrap}>
+        <Ionicons name="lock-closed-outline" size={48} color={theme.textMuted} />
+        <Text style={[styles.guestPromptTitle, { color: theme.text, fontFamily: Typography.title }]}>
+          {t("loginToAccess")}
+        </Text>
+        <Text style={[styles.guestPromptText, { color: theme.textSecondary, fontFamily: Typography.bodyRegular }]}>
+          {t("guestModePrompt")}
+        </Text>
+        <PrimaryButton label={t("login")} onPress={() => logout()} style={styles.guestLoginBtn} />
+      </View>
+    </View>
+  );
+}
+
+export default function FeedScreen() {
+  const { t } = useLanguage();
+  const { isGuest, user } = useAuth();
+  const { sessions } = useWorkout();
+  const searchParams = useLocalSearchParams<{
+    autoPostToken?: string | string[];
+    autoPostType?: string | string[];
+    autoPostProgramId?: string | string[];
+    autoPostDuration?: string | string[];
+    autoPostCalories?: string | string[];
+    autoPostExercises?: string | string[];
+    autoPostPrCount?: string | string[];
+    autoPostContent?: string | string[];
+  }>();
+  const insets = useSafeAreaInsets();
+  const colorScheme = useColorScheme();
+  const isDark = colorScheme === "dark";
+  const theme = isDark ? Colors.dark : Colors.light;
+  const webTopPadding = Platform.OS === "web" ? 67 : 0;
+  const lastAutoTokenRef = useRef<string | null>(null);
+
+  const [composerVisible, setComposerVisible] = useState(false);
+  const [postContent, setPostContent] = useState("");
+  const [postType, setPostType] = useState<PostType>("workout");
+  const [includeLatestSession, setIncludeLatestSession] = useState(true);
+  const [prefilledWorkoutData, setPrefilledWorkoutData] = useState<FeedPost["workoutData"] | null>(null);
+  const [composerPrefilled, setComposerPrefilled] = useState(false);
+  const [localPosts, setLocalPosts] = useState<FeedPost[]>([]);
+
+  const { data, isLoading, refetch } = useQuery<{ posts: FeedPost[] }>({
     queryKey: ["/api/feed"],
   });
 
+  const latestSession = useMemo(() => {
+    if (!sessions?.length) return null;
+    const sorted = [...sessions].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+    return sorted[0] ?? null;
+  }, [sessions]);
+
+  const latestSessionPreview = useMemo(() => {
+    if (!latestSession) return null;
+    const program = PROGRAMS.find((item) => item.id === latestSession.programId);
+    const programLabel = program ? t(program.nameKey as TranslationKey) : t("workout");
+    return {
+      title: `${programLabel} · ${latestSession.durationMin} ${t("minutes")} · ${latestSession.calories} ${t("kcal")}`,
+      subtitle: t("feedSessionTapInclude"),
+      workoutData: {
+        programId: latestSession.programId,
+        durationMin: latestSession.durationMin,
+        calories: latestSession.calories,
+        type: latestSession.type || "strength",
+      },
+    };
+  }, [latestSession, t]);
+
+  const prefilledSessionPreview = useMemo(() => {
+    if (!prefilledWorkoutData) return null;
+    const program = PROGRAMS.find((item) => item.id === prefilledWorkoutData.programId);
+    const programLabel = program ? t(program.nameKey as TranslationKey) : t("workout");
+    return {
+      title: `${programLabel} · ${prefilledWorkoutData.durationMin ?? 0} ${t("minutes")} · ${prefilledWorkoutData.calories ?? 0} ${t("kcal")}`,
+      subtitle: t("feedAutoPostReady"),
+    };
+  }, [prefilledWorkoutData, t]);
+
+  useEffect(() => {
+    const autoToken = readParam(searchParams.autoPostToken);
+    if (!autoToken || lastAutoTokenRef.current === autoToken) return;
+    lastAutoTokenRef.current = autoToken;
+
+    const content = readParam(searchParams.autoPostContent) ?? "";
+    const programId = readParam(searchParams.autoPostProgramId);
+    const duration = Number(readParam(searchParams.autoPostDuration) ?? 0);
+    const calories = Number(readParam(searchParams.autoPostCalories) ?? 0);
+
+    setPostType("workout");
+    setPostContent(content);
+    setComposerVisible(true);
+    setComposerPrefilled(true);
+    setIncludeLatestSession(false);
+
+    if (programId && Number.isFinite(duration) && Number.isFinite(calories)) {
+      setPrefilledWorkoutData({
+        programId,
+        durationMin: Math.max(0, Math.round(duration)),
+        calories: Math.max(0, Math.round(calories)),
+        type: "strength",
+      });
+    } else {
+      setPrefilledWorkoutData(null);
+    }
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, [searchParams]);
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/posts", {
+      const payload: Record<string, unknown> = {
         type: postType,
         content: postContent,
-      });
+      };
+
+      if (postType === "workout") {
+        if (prefilledWorkoutData) {
+          payload.workoutData = prefilledWorkoutData;
+        } else if (includeLatestSession && latestSessionPreview?.workoutData) {
+          payload.workoutData = latestSessionPreview.workoutData;
+        }
+      }
+
+      const res = await apiRequest("POST", "/api/posts", payload);
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/feed"] });
-      setShowCreateModal(false);
+      setComposerVisible(false);
       setPostContent("");
-      setPostType("update");
+      setPostType("workout");
+      setIncludeLatestSession(true);
+      setPrefilledWorkoutData(null);
+      setComposerPrefilled(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    },
+    onError: () => {
+      const localPost: FeedPost = {
+        id: `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        type: postType,
+        content: postContent,
+        workoutData:
+          postType === "workout"
+            ? prefilledWorkoutData ?? (includeLatestSession ? latestSessionPreview?.workoutData ?? null : null)
+            : null,
+        createdAt: new Date().toISOString(),
+        author: {
+          id: user?.id ?? "local-user",
+          displayName: user?.displayName ?? t("unknownUser"),
+        },
+        likeCount: 0,
+        likedByMe: false,
+      };
+      setLocalPosts((prev) => [localPost, ...prev]);
+      setComposerVisible(false);
+      setPostContent("");
+      setPostType("workout");
+      setIncludeLatestSession(true);
+      setPrefilledWorkoutData(null);
+      setComposerPrefilled(false);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     },
   });
 
-  const posts = data?.posts || [];
+  const posts = useMemo(() => [...localPosts, ...(data?.posts || [])], [data?.posts, localPosts]);
 
-  const renderPost = useCallback(({ item, index }: { item: any; index: number }) => (
-    <PostCard post={item} t={t} theme={theme} language={language} />
-  ), [t, theme, language]);
-
-  if (isGuest) {
-    return <GuestPrompt t={t} theme={theme} insets={insets} />;
-  }
-
-  const renderEmpty = () => (
-    <View style={styles.emptyWrap}>
-      <Ionicons name="chatbubbles-outline" size={48} color={theme.textMuted} />
-      <Text style={[styles.emptyTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
-        {t("noPostsYet")}
-      </Text>
-      <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
-        {t("shareYourJourney")}
-      </Text>
-    </View>
+  const typeTabs = useMemo(
+    () =>
+      (["workout", "achievement", "progress", "update"] as PostType[]).map((type) => ({
+        key: type,
+        label: t(type as TranslationKey),
+      })),
+    [t]
   );
 
+  const openComposer = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setComposerPrefilled(false);
+    setPrefilledWorkoutData(null);
+    setIncludeLatestSession(true);
+    setComposerVisible(true);
+  };
+
+  const renderPost = useCallback(({ item }: { item: FeedPost }) => <FeedPostItem post={item} />, []);
+
+  if (isGuest) {
+    return <GuestPrompt />;
+  }
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.header, { paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16 }]}>
-        <Text style={[styles.title, { color: theme.text, fontFamily: "Outfit_800ExtraBold" }]}>
-          {t("feed")}
-        </Text>
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setShowCreateModal(true);
-          }}
-          style={[styles.newPostBtn, { backgroundColor: theme.accent }]}
+    <View style={[styles.container, { backgroundColor: theme.background }]}> 
+      <View style={[styles.header, { paddingTop: Platform.OS === "web" ? webTopPadding + 14 : insets.top + 14 }]}> 
+        <Text
+          style={[styles.title, { color: theme.text, fontFamily: Typography.titleStrong }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.82}
         >
-          <Ionicons name="add" size={20} color="#fff" />
-        </Pressable>
+          {t("communityTitle")}
+        </Text>
+        <IconButton icon="add" size={48} onPress={openComposer} />
       </View>
 
       <FlatList
@@ -297,114 +411,131 @@ export default function FeedScreen() {
         keyExtractor={(item) => item.id}
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingBottom: Platform.OS === "web" ? 34 + 84 : 100,
+          paddingBottom: Platform.OS === "web" ? 34 + 88 : 104,
+          gap: 14,
           flexGrow: posts.length === 0 ? 1 : undefined,
         }}
-        ListEmptyComponent={isLoading ? null : renderEmpty}
-        refreshControl={
-          <RefreshControl
-            refreshing={isLoading}
-            onRefresh={() => refetch()}
-            tintColor={theme.accent}
-          />
+        ListEmptyComponent={
+          isLoading ? (
+            <View style={styles.skeletonList}>
+              {Array.from({ length: 3 }).map((_, idx) => (
+                <SkeletonCard key={`feed-skeleton-${idx}`} height={168} style={styles.skeletonCard} />
+              ))}
+            </View>
+          ) : (
+            <EmptyState
+              iconName="chatbubbles-outline"
+              title={t("noPostsYet")}
+              description={t("shareYourJourney")}
+            />
+          )
         }
+        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={theme.accent} />}
         showsVerticalScrollIndicator={false}
-        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
       />
 
-      <Modal
-        visible={showCreateModal}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowCreateModal(false)}
+      <BottomSheet
+        visible={composerVisible}
+        onClose={() => {
+          setComposerVisible(false);
+          setComposerPrefilled(false);
+          setPrefilledWorkoutData(null);
+          setIncludeLatestSession(true);
+        }}
+        title={t("newPost")}
       >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior="padding"
-          keyboardVerticalOffset={0}
-        >
-          <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
-            <View style={styles.modalOverlay}>
-              <View style={[styles.modalContent, { backgroundColor: theme.card, paddingBottom: insets.bottom + 20 }]}>
-                <View style={styles.modalHeader}>
-                  <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
-                    {t("newPost")}
-                  </Text>
-                  <Pressable onPress={() => setShowCreateModal(false)}>
-                    <Ionicons name="close" size={24} color={theme.textSecondary} />
-                  </Pressable>
-                </View>
+        <KeyboardAvoidingView behavior="padding" style={styles.sheetContent} keyboardVerticalOffset={0}>
+          <SectionLabel>{t("feedPostTypeLabel")}</SectionLabel>
 
-                <View style={styles.typeSelector}>
-                  {(["update", "workout", "achievement", "progress"] as PostType[]).map((type) => (
-                    <Pressable
-                      key={type}
-                      onPress={() => {
-                        setPostType(type);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
-                      style={[
-                        styles.typeChip,
-                        {
-                          backgroundColor: postType === type ? POST_TYPE_COLORS[type] + "20" : theme.border,
-                          borderColor: postType === type ? POST_TYPE_COLORS[type] : "transparent",
-                        },
-                      ]}
-                    >
-                      <Ionicons
-                        name={POST_TYPE_ICONS[type]}
-                        size={14}
-                        color={postType === type ? POST_TYPE_COLORS[type] : theme.textSecondary}
-                      />
-                      <Text style={[styles.typeChipText, {
-                        color: postType === type ? POST_TYPE_COLORS[type] : theme.textSecondary,
-                        fontFamily: "Outfit_500Medium",
-                      }]}>
-                        {t(type)}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+          <PillTabs tabs={typeTabs} active={postType} onChange={setPostType} style={styles.typeTabs} />
 
-                <TextInput
-                  style={[styles.postInput, {
-                    color: theme.text,
-                    backgroundColor: theme.background,
-                    fontFamily: "Outfit_400Regular",
-                  }]}
-                  value={postContent}
-                  onChangeText={setPostContent}
-                  placeholder={t("shareYourJourney")}
-                  placeholderTextColor={theme.textMuted}
-                  multiline
-                  textAlignVertical="top"
-                  testID="postContent"
-                />
+          {composerPrefilled ? (
+            <Text style={[styles.prefilledHint, { color: theme.textSecondary, fontFamily: Typography.bodyRegular }]}>
+              {t("feedAutoPostHint")}
+            </Text>
+          ) : null}
 
-                <Pressable
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    createMutation.mutate();
-                  }}
-                  disabled={!postContent.trim() || createMutation.isPending}
-                  style={({ pressed }) => [
-                    styles.createBtn,
-                    {
-                      backgroundColor: postContent.trim() ? theme.accent : theme.border,
-                      opacity: pressed ? 0.85 : 1,
-                    },
-                  ]}
-                >
-                  <Ionicons name="send" size={18} color="#fff" />
-                  <Text style={[styles.createBtnText, { fontFamily: "Outfit_700Bold" }]}>
-                    {t("publish")}
-                  </Text>
-                </Pressable>
+          {postType === "workout" ? (
+            prefilledSessionPreview ? (
+              <View style={styles.sessionCardWrap}>
+                <Card style={[styles.sessionCard, { borderColor: `${theme.accent}77` }]}> 
+                  <View style={[styles.sessionIcon, { backgroundColor: `${theme.accent}22` }]}> 
+                    <Ionicons name="sparkles-outline" size={18} color={theme.accent} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.sessionTitle, { color: theme.text, fontFamily: Typography.title }]} numberOfLines={1}>
+                      {prefilledSessionPreview.title}
+                    </Text>
+                    <Text style={[styles.sessionSubtitle, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}>
+                      {prefilledSessionPreview.subtitle}
+                    </Text>
+                  </View>
+                </Card>
               </View>
-            </View>
-          </TouchableWithoutFeedback>
+            ) : latestSessionPreview ? (
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setIncludeLatestSession((prev) => !prev);
+                }}
+                style={({ pressed }) => [
+                  styles.sessionCardWrap,
+                  {
+                    opacity: pressed ? 0.82 : 1,
+                  },
+                ]}
+              >
+                <Card style={[styles.sessionCard, { borderColor: includeLatestSession ? `${theme.accent}66` : theme.border }]}> 
+                  <View style={[styles.sessionIcon, { backgroundColor: `${theme.accent}22` }]}> 
+                    <Ionicons name="barbell-outline" size={18} color={theme.accent} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.sessionTitle, { color: theme.text, fontFamily: Typography.title }]} numberOfLines={1}>
+                      {latestSessionPreview.title}
+                    </Text>
+                    <Text style={[styles.sessionSubtitle, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}>
+                      {includeLatestSession ? t("feedSessionIncluded") : t("feedSessionExcluded")}
+                    </Text>
+                  </View>
+                </Card>
+              </Pressable>
+            ) : (
+              <Text style={[styles.noSessionText, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}>
+                {t("feedNoRecentSession")}
+              </Text>
+            )
+          ) : null}
+
+          <TextInput
+            value={postContent}
+            onChangeText={setPostContent}
+            placeholder={t("feedComposerPlaceholder")}
+            placeholderTextColor={theme.textMuted}
+            multiline
+            textAlignVertical="top"
+            style={[
+              styles.contentInput,
+              {
+                backgroundColor: theme.cardElevated,
+                borderColor: theme.border,
+                color: theme.text,
+                fontFamily: Typography.body,
+              },
+            ]}
+          />
+
+          <PrimaryButton
+            label={t("feedPostToCommunity")}
+            loading={createMutation.isPending}
+            disabled={!postContent.trim() || createMutation.isPending}
+            onPress={() => {
+              Keyboard.dismiss();
+              createMutation.mutate();
+            }}
+            style={styles.publishBtn}
+          />
         </KeyboardAvoidingView>
-      </Modal>
+      </BottomSheet>
     </View>
   );
 }
@@ -416,60 +547,90 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingBottom: 12,
+    paddingBottom: 14,
   },
-  title: { fontSize: 32 },
-  newPostBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: "center", justifyContent: "center",
+  title: {
+    flexShrink: 1,
+    marginRight: 12,
+    fontSize: 40,
+    lineHeight: 42,
+    letterSpacing: -0.8,
   },
-  postCard: { borderRadius: 16, padding: 16, gap: 12 },
-  postHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  postAuthorRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  avatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: "#fff", fontSize: 14 },
-  postAuthorInfo: { flex: 1, gap: 2 },
-  postAuthorName: { fontSize: 14 },
-  postMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  typeBadge: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8,
+  postCard: {
+    borderRadius: 24,
   },
-  typeBadgeText: { fontSize: 10 },
-  postTime: { fontSize: 11 },
-  deleteBtn: { padding: 4 },
-  postContent: { fontSize: 14, lineHeight: 20 },
-  workoutDataCard: { borderRadius: 12, padding: 12, flexDirection: "row", gap: 16 },
-  workoutDataRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  workoutDataText: { fontSize: 12 },
-  postActions: { flexDirection: "row", alignItems: "center" },
-  likeBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
-  likeCount: { fontSize: 13 },
-  emptyWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },
-  emptyTitle: { fontSize: 18 },
-  emptyText: { fontSize: 14, textAlign: "center" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
-  modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 16 },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  modalTitle: { fontSize: 20 },
-  typeSelector: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  typeChip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1,
+  skeletonList: {
+    gap: 14,
+    paddingTop: 4,
   },
-  typeChipText: { fontSize: 12 },
-  postInput: {
-    borderRadius: 14, padding: 14,
-    fontSize: 15, minHeight: 120, maxHeight: 200,
+  skeletonCard: {
+    borderRadius: 24,
   },
-  createBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 8, borderRadius: 14, paddingVertical: 14,
+  sheetContent: {
+    gap: 12,
   },
-  createBtnText: { color: "#fff", fontSize: 15 },
-  guestPromptWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 14 },
+  typeTabs: {
+    flexWrap: "wrap",
+  },
+  prefilledHint: {
+    fontSize: 12,
+    marginTop: -2,
+    marginBottom: 2,
+  },
+  sessionCardWrap: {
+    marginTop: 2,
+  },
+  sessionCard: {
+    borderRadius: 18,
+    borderLeftWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  sessionIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sessionTitle: {
+    fontSize: 15,
+  },
+  sessionSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  noSessionText: {
+    fontSize: 13,
+  },
+  contentInput: {
+    minHeight: 120,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    lineHeight: 21,
+    marginTop: 2,
+  },
+  publishBtn: {
+    marginTop: 6,
+    marginBottom: 2,
+  },
+  guestPromptWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 32,
+    gap: 14,
+  },
   guestPromptTitle: { fontSize: 20, textAlign: "center" },
   guestPromptText: { fontSize: 14, textAlign: "center", lineHeight: 20 },
-  guestLoginBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32, marginTop: 8 },
-  guestLoginBtnText: { color: "#fff", fontSize: 16 },
+  guestLoginBtn: {
+    marginTop: 8,
+    minWidth: 160,
+  },
 });

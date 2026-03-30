@@ -1,24 +1,24 @@
-const ORANGE = "#FF6B2C";
-const DARK_BG = "#0D0D0D";
-const DARK_CARD = "#1A1A1A";
-const DARK_BORDER = "#2A2A2A";
+const ORANGE = "#F55F2B";
+const DARK_BG = "#080808";
+const DARK_CARD = "#161616";
+const DARK_BORDER = "#272727";
 
 export const Colors = {
   dark: {
     background: DARK_BG,
     card: DARK_CARD,
-    cardElevated: "#222222",
+    cardElevated: "#1E1E1E",
     border: DARK_BORDER,
-    text: "#FFFFFF",
-    textSecondary: "#9A9A9A",
+    text: "#F2F2F2",
+    textSecondary: "#888888",
     textMuted: "#555555",
     accent: ORANGE,
-    accentDark: "#CC5520",
+    accentDark: "#C44720",
     accentLight: "#FF8C5A",
-    success: "#4CAF7D",
-    warning: "#FFB547",
+    success: "#2DD4A0",
+    warning: "#F5C842",
     error: "#FF4D4D",
-    tabBar: "rgba(13,13,13,0.95)",
+    tabBar: "rgba(8,8,8,0.95)",
   },
   light: {
     background: "#F5F5F5",

@@ -22,7 +22,7 @@ async function connectDb() {
     // eslint-disable-next-line no-console
     console.warn('MongoDB local indisponible, fallback vers MongoMemoryServer (dev only).');
     memoryServer = await MongoMemoryServer.create({
-      instance: { dbName: 'fitpulse-dev', ip: '127.0.0.1' }
+      instance: { dbName: 'fitforce-dev', ip: '127.0.0.1' }
     });
     const memoryUri = memoryServer.getUri();
     await mongoose.connect(memoryUri, { serverSelectionTimeoutMS: 5000 });

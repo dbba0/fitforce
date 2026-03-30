@@ -7,6 +7,7 @@ import React from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Ionicons } from "@expo/vector-icons";
 import { Colors } from "@/constants/colors";
+import { Typography } from "@/constants/typography";
 
 function NativeTabLayout() {
   const { t } = useLanguage();
@@ -16,29 +17,17 @@ function NativeTabLayout() {
         <Icon sf={{ default: "house", selected: "house.fill" }} />
         <Label>{t("home")}</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="feed">
-        <Icon sf={{ default: "heart", selected: "heart.fill" }} />
-        <Label>{t("feed")}</Label>
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="workouts">
         <Icon sf={{ default: "figure.run", selected: "figure.run" }} />
         <Label>{t("workouts")}</Label>
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="builder">
-        <Icon sf={{ default: "wrench.and.screwdriver", selected: "wrench.and.screwdriver.fill" }} />
-        <Label>Builder</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="goals">
-        <Icon sf={{ default: "target", selected: "target" }} />
-        <Label>{t("goals")}</Label>
+      <NativeTabs.Trigger name="feed">
+        <Icon sf={{ default: "heart", selected: "heart.fill" }} />
+        <Label>{t("feed")}</Label>
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="profile">
         <Icon sf={{ default: "person", selected: "person.fill" }} />
         <Label>{t("profile")}</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="settings">
-        <Icon sf={{ default: "gearshape", selected: "gearshape.fill" }} />
-        <Label>{t("settings")}</Label>
       </NativeTabs.Trigger>
     </NativeTabs>
   );
@@ -82,7 +71,7 @@ function ClassicTabLayout() {
             />
           ) : null,
         tabBarLabelStyle: {
-          fontFamily: "Outfit_500Medium",
+          fontFamily: Typography.body,
           fontSize: 11,
         },
       }}
@@ -97,15 +86,6 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="feed"
-        options={{
-          title: t("feed"),
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="people-outline" size={22} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
         name="workouts"
         options={{
           title: t("workouts"),
@@ -115,20 +95,11 @@ function ClassicTabLayout() {
         }}
       />
       <Tabs.Screen
-        name="goals"
+        name="feed"
         options={{
-          title: t("goals"),
+          title: t("feed"),
           tabBarIcon: ({ color }) => (
-            <Ionicons name="flag-outline" size={22} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="builder"
-        options={{
-          title: "Builder",
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="construct-outline" size={22} color={color} />
+            <Ionicons name="people-outline" size={22} color={color} />
           ),
         }}
       />
@@ -138,15 +109,6 @@ function ClassicTabLayout() {
           title: t("profile"),
           tabBarIcon: ({ color }) => (
             <Ionicons name="person-outline" size={22} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: t("settings"),
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="settings-outline" size={22} color={color} />
           ),
         }}
       />

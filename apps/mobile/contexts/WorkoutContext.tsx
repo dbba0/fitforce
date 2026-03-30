@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiRequest } from "@/lib/query-client";
@@ -37,6 +37,34 @@ export interface ExerciseCustomization {
   weightKg?: number;
 }
 
+export interface WeeklyChallenge {
+  weekStart: string;
+  targetSessions: number;
+  completedSessions: number;
+  progress: number;
+}
+
+export type XpLevelId = "rookie" | "warrior" | "legend" | "elite";
+
+export interface PlayerProgress {
+  totalXp: number;
+  level: XpLevelId;
+  levelNameKey: "xpLevelRookie" | "xpLevelWarrior" | "xpLevelLegend" | "xpLevelElite";
+  currentLevelMinXp: number;
+  nextLevelMinXp: number | null;
+  progressToNext: number;
+  xpInLevel: number;
+  xpNeededForNext: number;
+}
+
+export interface XpRewardSummary {
+  gainedXp: number;
+  previousLevel: XpLevelId;
+  newLevel: XpLevelId;
+  leveledUp: boolean;
+  totalXp: number;
+}
+
 interface WorkoutContextValue {
   profile: UserProfile;
   updateProfile: (updates: Partial<UserProfile>) => void;
@@ -58,6 +86,9 @@ interface WorkoutContextValue {
   streakDays: number;
   weeklyProgress: number[];
   weeklyCardio: number[];
+  weeklyChallenge: WeeklyChallenge;
+  playerProgress: PlayerProgress;
+  grantXpBatch: (input: { sessionCount?: number; prCount?: number; streakCount?: number }) => Promise<XpRewardSummary>;
   isLoaded: boolean;
 }
 
@@ -78,6 +109,97 @@ const PROFILE_KEY = "@fitforce_profile";
 const GOALS_KEY = "@fitforce_goals";
 const SESSIONS_KEY = "@fitforce_sessions";
 const CUSTOMIZATIONS_KEY = "@fitforce_customizations";
+const WEEKLY_CHALLENGE_KEY = "@fitforce_weekly_challenge";
+const XP_TOTAL_KEY = "@fitforce_xp_total";
+
+const XP_PER_SESSION = 100;
+const XP_PER_PR = 50;
+const XP_PER_STREAK = 20;
+
+const LEVELS: Array<{
+  id: XpLevelId;
+  minXp: number;
+  nameKey: "xpLevelRookie" | "xpLevelWarrior" | "xpLevelLegend" | "xpLevelElite";
+}> = [
+  { id: "rookie", minXp: 0, nameKey: "xpLevelRookie" },
+  { id: "warrior", minXp: 500, nameKey: "xpLevelWarrior" },
+  { id: "legend", minXp: 1500, nameKey: "xpLevelLegend" },
+  { id: "elite", minXp: 3000, nameKey: "xpLevelElite" },
+];
+
+function startOfWeekMonday(date: Date): Date {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  const day = copy.getDay();
+  const delta = day === 0 ? -6 : 1 - day;
+  copy.setDate(copy.getDate() + delta);
+  return copy;
+}
+
+function toIsoDay(date: Date): string {
+  return date.toISOString().split("T")[0];
+}
+
+function getCurrentWeekStartIso(): string {
+  return toIsoDay(startOfWeekMonday(new Date()));
+}
+
+function clampProgress(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
+function buildPlayerProgress(totalXp: number): PlayerProgress {
+  const safeXp = Math.max(0, Math.floor(totalXp));
+  const currentLevelIndex = LEVELS.findIndex((level, index) => {
+    const next = LEVELS[index + 1];
+    if (!next) return true;
+    return safeXp >= level.minXp && safeXp < next.minXp;
+  });
+  const levelIndex = currentLevelIndex >= 0 ? currentLevelIndex : LEVELS.length - 1;
+  const currentLevel = LEVELS[levelIndex];
+  const nextLevel = LEVELS[levelIndex + 1] ?? null;
+  const xpInLevel = safeXp - currentLevel.minXp;
+  const xpNeededForNext = nextLevel ? Math.max(0, nextLevel.minXp - safeXp) : 0;
+  const progressToNext = nextLevel
+    ? clampProgress((safeXp - currentLevel.minXp) / Math.max(1, nextLevel.minXp - currentLevel.minXp))
+    : 1;
+
+  return {
+    totalXp: safeXp,
+    level: currentLevel.id,
+    levelNameKey: currentLevel.nameKey,
+    currentLevelMinXp: currentLevel.minXp,
+    nextLevelMinXp: nextLevel?.minXp ?? null,
+    progressToNext,
+    xpInLevel,
+    xpNeededForNext,
+  };
+}
+
+function countCompletedSessionsForWeek(sessions: WorkoutSession[], weekStartIso: string): number {
+  const weekStart = new Date(`${weekStartIso}T00:00:00`);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekStart.getDate() + 7);
+  return sessions.filter((session) => {
+    if (!session.completed) return false;
+    const date = new Date(session.date);
+    return date >= weekStart && date < weekEnd;
+  }).length;
+}
+
+function buildWeeklyChallenge(
+  sessions: WorkoutSession[],
+  weekStartIso: string,
+  targetSessions = 4
+): WeeklyChallenge {
+  const completedSessions = countCompletedSessionsForWeek(sessions, weekStartIso);
+  return {
+    weekStart: weekStartIso,
+    targetSessions,
+    completedSessions,
+    progress: clampProgress(targetSessions > 0 ? completedSessions / targetSessions : 0),
+  };
+}
 
 function dedupeSessions(sessions: WorkoutSession[]): WorkoutSession[] {
   const seenIds = new Set<string>();
@@ -99,29 +221,73 @@ function dedupeSessions(sessions: WorkoutSession[]): WorkoutSession[] {
   return next;
 }
 
+function safeJsonParse<T>(raw: string | null, fallback: T): T {
+  if (!raw) return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 export function WorkoutProvider({ children }: { children: ReactNode }) {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [profile, setProfile] = useState<UserProfile>(DEFAULT_PROFILE);
   const [goals, setGoals] = useState<Goal[]>(DEFAULT_GOALS);
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [customizations, setCustomizations] = useState<Record<string, ExerciseCustomization>>({});
+  const [weeklyChallenge, setWeeklyChallenge] = useState<WeeklyChallenge>(() =>
+    buildWeeklyChallenge([], getCurrentWeekStartIso(), 4)
+  );
+  const [totalXp, setTotalXp] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   const lastSyncedUserRef = useRef<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const [p, g, s, c] = await Promise.all([
+        const [p, g, s, c, wc, xpRaw] = await Promise.all([
           AsyncStorage.getItem(PROFILE_KEY),
           AsyncStorage.getItem(GOALS_KEY),
           AsyncStorage.getItem(SESSIONS_KEY),
           AsyncStorage.getItem(CUSTOMIZATIONS_KEY),
+          AsyncStorage.getItem(WEEKLY_CHALLENGE_KEY),
+          AsyncStorage.getItem(XP_TOTAL_KEY),
         ]);
-        if (p) setProfile(JSON.parse(p));
-        if (g) setGoals(JSON.parse(g));
-        if (s) setSessions(JSON.parse(s));
-        if (c) setCustomizations(JSON.parse(c));
-      } catch {
+        const sessionsParsed = safeJsonParse<unknown>(s, []);
+        const parsedSessions: WorkoutSession[] = Array.isArray(sessionsParsed)
+          ? dedupeSessions(sessionsParsed as WorkoutSession[])
+          : [];
+        const profileParsed = safeJsonParse<UserProfile | null>(p, null);
+        if (profileParsed && typeof profileParsed === "object") setProfile(profileParsed);
+        const goalsParsed = safeJsonParse<unknown>(g, []);
+        if (Array.isArray(goalsParsed)) setGoals(goalsParsed as Goal[]);
+        if (s) setSessions(parsedSessions);
+        const customParsed = safeJsonParse<Record<string, ExerciseCustomization> | null>(c, null);
+        if (customParsed && typeof customParsed === "object" && !Array.isArray(customParsed)) {
+          setCustomizations(customParsed);
+        }
+        const currentWeekStart = getCurrentWeekStartIso();
+        if (wc) {
+          const parsedChallenge = safeJsonParse<WeeklyChallenge | null>(wc, null);
+          if (
+            parsedChallenge &&
+            typeof parsedChallenge === "object" &&
+            typeof parsedChallenge.weekStart === "string"
+          ) {
+            const targetSessions = parsedChallenge.targetSessions > 0 ? parsedChallenge.targetSessions : 4;
+            const sourceWeekStart =
+              parsedChallenge.weekStart === currentWeekStart
+                ? parsedChallenge.weekStart
+                : currentWeekStart;
+            setWeeklyChallenge(buildWeeklyChallenge(parsedSessions, sourceWeekStart, targetSessions));
+          } else {
+            setWeeklyChallenge(buildWeeklyChallenge(parsedSessions, currentWeekStart, 4));
+          }
+        } else {
+          setWeeklyChallenge(buildWeeklyChallenge(parsedSessions, currentWeekStart, 4));
+        }
+        setTotalXp(Number(xpRaw ?? 0) || 0);
       } finally {
         setIsLoaded(true);
       }
@@ -180,12 +346,12 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   }, [isLoaded, isAuthenticated, user]);
 
   useEffect(() => {
-    if (!user) {
-      lastSyncedUserRef.current = null;
-      setSessions([]);
-      AsyncStorage.removeItem(SESSIONS_KEY);
-    }
-  }, [user]);
+    if (authLoading) return;
+    if (isAuthenticated) return;
+    lastSyncedUserRef.current = null;
+    setSessions([]);
+    AsyncStorage.removeItem(SESSIONS_KEY).catch(() => {});
+  }, [authLoading, isAuthenticated]);
 
   const updateProfile = async (updates: Partial<UserProfile>) => {
     const updated = { ...profile, ...updates };
@@ -333,6 +499,76 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     });
   }, [sessions]);
 
+  useEffect(() => {
+    if (!isLoaded) return;
+    const currentWeekStart = getCurrentWeekStartIso();
+    setWeeklyChallenge((prev) => {
+      const targetSessions = prev.weekStart === currentWeekStart ? prev.targetSessions : 4;
+      const next = buildWeeklyChallenge(sessions, currentWeekStart, targetSessions);
+      if (
+        prev.weekStart === next.weekStart &&
+        prev.targetSessions === next.targetSessions &&
+        prev.completedSessions === next.completedSessions &&
+        prev.progress === next.progress
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, [isLoaded, sessions]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    AsyncStorage.setItem(WEEKLY_CHALLENGE_KEY, JSON.stringify(weeklyChallenge)).catch(() => {});
+  }, [isLoaded, weeklyChallenge]);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    AsyncStorage.setItem(XP_TOTAL_KEY, String(Math.max(0, Math.floor(totalXp)))).catch(() => {});
+  }, [isLoaded, totalXp]);
+
+  const playerProgress = useMemo(() => buildPlayerProgress(totalXp), [totalXp]);
+
+  const grantXpBatch = useCallback(async ({
+    sessionCount = 0,
+    prCount = 0,
+    streakCount = 0,
+  }: {
+    sessionCount?: number;
+    prCount?: number;
+    streakCount?: number;
+  }): Promise<XpRewardSummary> => {
+    const gainedXp =
+      Math.max(0, sessionCount) * XP_PER_SESSION +
+      Math.max(0, prCount) * XP_PER_PR +
+      Math.max(0, streakCount) * XP_PER_STREAK;
+
+    const previous = buildPlayerProgress(totalXp);
+    if (gainedXp <= 0) {
+      return {
+        gainedXp: 0,
+        previousLevel: previous.level,
+        newLevel: previous.level,
+        leveledUp: false,
+        totalXp: previous.totalXp,
+      };
+    }
+
+    const nextTotal = Math.max(0, Math.floor(totalXp + gainedXp));
+    setTotalXp(nextTotal);
+    const next = buildPlayerProgress(nextTotal);
+    const leveledUp = LEVELS.findIndex((level) => level.id === next.level) >
+      LEVELS.findIndex((level) => level.id === previous.level);
+
+    return {
+      gainedXp,
+      previousLevel: previous.level,
+      newLevel: next.level,
+      leveledUp,
+      totalXp: nextTotal,
+    };
+  }, [totalXp]);
+
   const value = useMemo(() => ({
     profile,
     updateProfile,
@@ -354,8 +590,11 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     streakDays,
     weeklyProgress,
     weeklyCardio,
+    weeklyChallenge,
+    playerProgress,
+    grantXpBatch,
     isLoaded,
-  }), [profile, goals, sessions, customizations, totalWorkouts, totalMinutes, totalCalories, totalCardioMinutes, totalCardioCalories, streakDays, weeklyProgress, weeklyCardio, isLoaded]);
+  }), [profile, goals, sessions, customizations, totalWorkouts, totalMinutes, totalCalories, totalCardioMinutes, totalCardioCalories, streakDays, weeklyProgress, weeklyCardio, weeklyChallenge, playerProgress, grantXpBatch, isLoaded]);
 
   return (
     <WorkoutContext.Provider value={value}>

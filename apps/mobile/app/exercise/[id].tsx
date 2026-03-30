@@ -17,11 +17,11 @@ import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
-import { LinearGradient } from "expo-linear-gradient";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getExerciseById } from "@/data/exercises";
 import { Colors } from "@/constants/colors";
-import ExerciseCoachFigure from "@/components/ExerciseCoachFigure";
+import ExerciseMedia from "@/components/ExerciseMedia";
+import { GhostButton, PillTabs, PrimaryButton } from "@/components/ui";
 
 type DetailTab = "video" | "muscle" | "tutorial";
 
@@ -35,14 +35,6 @@ const MUSCLE_LABELS: Record<string, string> = {
   arms: "Bras",
   core: "Core",
   legs: "Jambes",
-};
-
-const FIGURE_THEME = {
-  card: "#F2F4F8",
-  border: "#D8DCE7",
-  text: "#1B1D25",
-  textSecondary: "#616879",
-  accent: "#266CFF",
 };
 
 function secondsToClock(total: number) {
@@ -65,15 +57,22 @@ export default function ExerciseDetailScreen() {
   const [useInlineVideo, setUseInlineVideo] = useState(Platform.OS !== "ios");
 
   const exercise = getExerciseById(id ?? "");
+  const figureTheme = {
+    card: theme.card,
+    border: theme.border,
+    text: theme.text,
+    textSecondary: theme.textSecondary,
+    accent: theme.accent,
+  };
 
   const [durationSec, setDurationSec] = useState(() => (exercise ? Math.max(15, exercise.durationMin * 60) : 30));
 
   if (!exercise) {
     return (
       <View style={[styles.fallback, { backgroundColor: theme.background }]}> 
-        <Text style={[styles.fallbackText, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>{t("errorLoading")}</Text>
+        <Text style={[styles.fallbackText, { color: theme.text, fontFamily: "Syne_700Bold" }]}>{t("errorLoading")}</Text>
         <Pressable onPress={() => router.back()} style={[styles.closeBtn, { backgroundColor: theme.accent }]}> 
-          <Text style={[styles.closeBtnText, { fontFamily: "Outfit_700Bold" }]}>{t("retry")}</Text>
+          <Text style={[styles.closeBtnText, { fontFamily: "Syne_700Bold" }]}>{t("retry")}</Text>
         </Pressable>
       </View>
     );
@@ -122,31 +121,14 @@ body { background: #000; overflow: hidden; }
 </html>
 `;
 
-  const tabButton = (tab: DetailTab, label: string) => (
-    <Pressable
-      key={tab}
-      onPress={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        setActiveTab(tab);
-      }}
-      style={[styles.segmentBtn, activeTab === tab && styles.segmentBtnActive]}
-    >
-      <Text
-        style={[
-          styles.segmentText,
-          {
-            color: activeTab === tab ? "#FFFFFF" : "#9EA3AE",
-            fontFamily: "Outfit_700Bold",
-          },
-        ]}
-      >
-        {label}
-      </Text>
-    </Pressable>
-  );
+  const detailTabs: { key: DetailTab; label: string }[] = [
+    { key: "video", label: "Video" },
+    { key: "muscle", label: "Muscle" },
+    { key: "tutorial", label: "Tutoriel" },
+  ];
 
   return (
-    <LinearGradient colors={["#0B1224", "#090A12"]} style={styles.root}>
+    <View style={[styles.root, { backgroundColor: theme.background }]}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingTop: insets.top + 8, paddingBottom: Math.max(32, insets.bottom + 14) }}
@@ -155,12 +137,12 @@ body { background: #000; overflow: hidden; }
           <View style={styles.handle} />
 
           <View style={styles.headerRow}>
-            <Text style={[styles.title, { fontFamily: "Outfit_800ExtraBold" }]}>{exT.name}</Text>
+            <Text style={[styles.title, { fontFamily: "Syne_800ExtraBold" }]}>{exT.name}</Text>
             <Pressable
               onPress={() => setActiveTab("tutorial")}
               style={({ pressed }) => [styles.notesBtn, { opacity: pressed ? 0.75 : 1 }]}
             >
-              <Text style={[styles.notesText, { fontFamily: "Outfit_500Medium" }]}>Remarques</Text>
+              <Text style={[styles.notesText, { fontFamily: "DMSans_500Medium" }]}>Remarques</Text>
             </Pressable>
           </View>
 
@@ -192,26 +174,26 @@ body { background: #000; overflow: hidden; }
               <View style={styles.videoFallback}>
                 <Image source={{ uri: youtubeThumb }} style={styles.videoThumb} resizeMode="cover" />
                 <View style={styles.videoOverlay}>
-                  <Text style={[styles.videoFallbackTitle, { fontFamily: "Outfit_700Bold" }]}>Video</Text>
-                  <Text style={[styles.videoFallbackText, { fontFamily: "Outfit_400Regular" }]}>Lecture integree indisponible.</Text>
+                  <Text style={[styles.videoFallbackTitle, { fontFamily: "Syne_700Bold" }]}>Video</Text>
+                  <Text style={[styles.videoFallbackText, { fontFamily: "DMSans_400Regular" }]}>Lecture integree indisponible.</Text>
                   <View style={styles.videoActions}>
-                    <Pressable
+                    <PrimaryButton
+                      label="Regarder sur YouTube"
+                      icon="logo-youtube"
                       onPress={() => Linking.openURL(youtubeUrl)}
-                      style={({ pressed }) => [styles.videoActionBtn, { opacity: pressed ? 0.85 : 1 }]}
-                    >
-                      <Ionicons name="logo-youtube" size={18} color="#FF2D2D" />
-                      <Text style={[styles.videoActionText, { fontFamily: "Outfit_700Bold" }]}>Regarder sur YouTube</Text>
-                    </Pressable>
+                      style={styles.videoActionBtn}
+                      textStyle={styles.videoActionText}
+                    />
                     {!useInlineVideo && (
-                      <Pressable
+                      <GhostButton
+                        label="Lire ici"
                         onPress={() => {
                           setVideoError(false);
                           setUseInlineVideo(true);
                         }}
-                        style={({ pressed }) => [styles.videoInlineBtn, { opacity: pressed ? 0.85 : 1 }]}
-                      >
-                        <Text style={[styles.videoInlineText, { fontFamily: "Outfit_700Bold" }]}>Lire ici</Text>
-                      </Pressable>
+                        style={styles.videoInlineBtn}
+                        textStyle={styles.videoInlineText}
+                      />
                     )}
                   </View>
                 </View>
@@ -220,16 +202,19 @@ body { background: #000; overflow: hidden; }
 
             {activeTab === "muscle" ? (
               <View style={styles.visualWrap}>
-                <ExerciseCoachFigure
+                <ExerciseMedia
+                  exerciseId={exercise.id}
+                  type="auto"
+                  size={162}
+                  autoPlay
+                  loop
+                  isActive={activeTab === "muscle"}
                   muscles={exercise.muscles}
-                  title="Vue musculaire"
+                  title={exT.name}
                   subtitle={exT.description}
-                  theme={FIGURE_THEME}
-                  highlightColor={"#FF5E38"}
+                  theme={figureTheme}
+                  highlightColor={theme.accent}
                 />
-                <View style={styles.stopBadge}>
-                  <Ionicons name="stop" size={14} color="#3D63FF" />
-                </View>
               </View>
             ) : null}
 
@@ -238,21 +223,25 @@ body { background: #000; overflow: hidden; }
                 {tutorialBullets.map((line, idx) => (
                   <View key={`${line}-${idx}`} style={styles.tutorialRow}>
                     <View style={styles.dot} />
-                    <Text style={[styles.tutorialText, { fontFamily: "Outfit_400Regular" }]}>{line}</Text>
+                    <Text style={[styles.tutorialText, { fontFamily: "DMSans_400Regular" }]}>{line}</Text>
                   </View>
                 ))}
               </View>
             ) : null}
           </View>
 
-          <View style={styles.segmented}>
-            {tabButton("video", "Video")}
-            {tabButton("muscle", "Muscle")}
-            {tabButton("tutorial", "Tutoriel")}
-          </View>
+          <PillTabs
+            tabs={detailTabs}
+            active={activeTab}
+            onChange={(tab) => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveTab(tab);
+            }}
+            style={styles.segmented}
+          />
 
           <Animated.View entering={FadeInDown.duration(350).delay(80)} style={styles.durationRow}>
-            <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Outfit_800ExtraBold" }]}>DUREE (SECONDES)</Text>
+            <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Syne_800ExtraBold" }]}>DUREE (SECONDES)</Text>
             <View style={styles.counterRow}>
               <Pressable
                 onPress={() => setDurationSec((s) => Math.max(15, s - 15))}
@@ -261,7 +250,7 @@ body { background: #000; overflow: hidden; }
                 <Ionicons name="remove" size={20} color="#FFFFFF" />
               </Pressable>
 
-              <Text style={[styles.counterValue, { fontFamily: "Outfit_800ExtraBold" }]}>{secondsToClock(durationSec)}</Text>
+              <Text style={[styles.counterValue, { fontFamily: "Syne_800ExtraBold" }]}>{secondsToClock(durationSec)}</Text>
 
               <Pressable
                 onPress={() => setDurationSec((s) => Math.min(7200, s + 15))}
@@ -273,30 +262,25 @@ body { background: #000; overflow: hidden; }
           </Animated.View>
 
           <Animated.View entering={FadeInDown.duration(350).delay(120)}>
-            <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Outfit_800ExtraBold" }]}>INSTRUCTION</Text>
-            <Text style={[styles.paragraph, { fontFamily: "Outfit_400Regular" }]}>{instructionText}</Text>
+            <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Syne_800ExtraBold" }]}>INSTRUCTION</Text>
+            <Text style={[styles.paragraph, { fontFamily: "DMSans_400Regular" }]}>{instructionText}</Text>
           </Animated.View>
 
           <Animated.View entering={FadeInDown.duration(350).delay(140)}>
-            <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Outfit_800ExtraBold" }]}>ZONE CIBLEE</Text>
+            <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Syne_800ExtraBold" }]}>ZONE CIBLEE</Text>
             <View style={styles.zoneWrap}>
               {exercise.muscles.map((muscle) => (
                 <View key={muscle} style={styles.zoneChip}>
-                  <Text style={[styles.zoneChipText, { fontFamily: "Outfit_700Bold" }]}>{MUSCLE_LABELS[muscle] ?? muscle}</Text>
+                  <Text style={[styles.zoneChipText, { fontFamily: "Syne_700Bold" }]}>{MUSCLE_LABELS[muscle] ?? muscle}</Text>
                 </View>
               ))}
             </View>
           </Animated.View>
 
-          <Pressable
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.bottomClose, { opacity: pressed ? 0.9 : 1 }]}
-          >
-            <Text style={[styles.bottomCloseText, { fontFamily: "Outfit_800ExtraBold" }]}>Fermer</Text>
-          </Pressable>
+          <PrimaryButton label="Fermer" onPress={() => router.back()} style={styles.bottomClose} textStyle={styles.bottomCloseText} />
         </Animated.View>
       </ScrollView>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -331,8 +315,8 @@ const styles = StyleSheet.create({
   },
   title: {
     color: "#F3F5FA",
-    fontSize: 44,
-    lineHeight: 52,
+    fontSize: 36,
+    lineHeight: 42,
     flex: 1,
   },
   notesBtn: {
@@ -347,7 +331,7 @@ const styles = StyleSheet.create({
 
   mediaCard: {
     borderRadius: 20,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#16181E",
     minHeight: MEDIA_HEIGHT,
     overflow: "hidden",
     marginBottom: 14,
@@ -371,24 +355,11 @@ const styles = StyleSheet.create({
   },
   videoFallbackTitle: { color: "#FFFFFF", fontSize: 18, marginBottom: 4 },
   videoFallbackText: { color: "#E2E8F0", fontSize: 12, marginBottom: 10 },
-  videoActions: { flexDirection: "row", alignItems: "center", gap: 10 },
-  videoActionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  videoActionText: { color: "#111827", fontSize: 12 },
-  videoInlineBtn: {
-    backgroundColor: "#0F5DFF",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
-  },
-  videoInlineText: { color: "#FFFFFF", fontSize: 12 },
+  videoActions: { gap: 10 },
+  videoActionBtn: { width: "100%" },
+  videoActionText: { fontSize: 16 },
+  videoInlineBtn: { width: "100%" },
+  videoInlineText: { color: "#E2E8F0", fontSize: 14 },
   webview: {
     height: MEDIA_HEIGHT,
     backgroundColor: "#000",
@@ -397,7 +368,7 @@ const styles = StyleSheet.create({
     minHeight: MEDIA_HEIGHT,
     justifyContent: "center",
     padding: 12,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#121419",
   },
   stopBadge: {
     position: "absolute",
@@ -406,11 +377,11 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    borderWidth: 3,
-    borderColor: "#5E7BFF",
+    borderWidth: 2,
+    borderColor: "#F55F2B",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#EEF1FF",
+    backgroundColor: "rgba(245,95,43,0.16)",
   },
   tutorialCard: {
     paddingHorizontal: 14,
@@ -428,7 +399,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 5,
-    backgroundColor: "#266CFF",
+    backgroundColor: "#F55F2B",
     marginTop: 7,
   },
   tutorialText: {
@@ -439,25 +410,7 @@ const styles = StyleSheet.create({
   },
 
   segmented: {
-    backgroundColor: "#23252F",
-    borderRadius: 999,
-    padding: 4,
-    flexDirection: "row",
     marginBottom: 18,
-    gap: 4,
-  },
-  segmentBtn: {
-    flex: 1,
-    borderRadius: 999,
-    paddingVertical: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  segmentBtnActive: {
-    backgroundColor: "#0F5DFF",
-  },
-  segmentText: {
-    fontSize: 17,
   },
 
   durationRow: {
@@ -472,7 +425,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   sectionBlue: {
-    color: "#0F66FF",
+    color: "#F55F2B",
   },
   counterRow: {
     flexDirection: "row",
@@ -489,15 +442,15 @@ const styles = StyleSheet.create({
   },
   counterValue: {
     color: "#F8FAFC",
-    fontSize: 40,
+    fontSize: 34,
     minWidth: 128,
     textAlign: "center",
   },
 
   paragraph: {
     color: "#E6E9F0",
-    fontSize: 17,
-    lineHeight: 30,
+    fontSize: 15,
+    lineHeight: 24,
     marginBottom: 20,
   },
 
@@ -509,26 +462,23 @@ const styles = StyleSheet.create({
   },
   zoneChip: {
     borderRadius: 12,
-    backgroundColor: "#10244B",
+    backgroundColor: "rgba(245,95,43,0.16)",
     borderWidth: 1,
-    borderColor: "#2A5CB3",
+    borderColor: "rgba(245,95,43,0.45)",
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
   zoneChipText: {
-    color: "#8DB6FF",
+    color: "#F78C62",
     fontSize: 13,
   },
 
   bottomClose: {
-    backgroundColor: "#0B5DFF",
+    height: 58,
     borderRadius: 22,
-    paddingVertical: 17,
-    alignItems: "center",
   },
   bottomCloseText: {
-    color: "#FFFFFF",
-    fontSize: 34,
-    lineHeight: 40,
+    fontSize: 18,
+    lineHeight: 20,
   },
 });
