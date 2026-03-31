@@ -1,12 +1,13 @@
-export const Typography = {
-  display: "Syne_800ExtraBold",
-  title: "Syne_700Bold",
-  titleStrong: "Syne_800ExtraBold",
-  body: "DMSans_500Medium",
-  bodyRegular: "DMSans_400Regular",
-  bodySemiBold: "DMSans_600SemiBold",
-  bodyBold: "DMSans_700Bold",
-  labelTech: "SpaceGrotesk_600SemiBold",
-  monoStat: "SpaceGrotesk_700Bold",
-} as const;
+import { fontFamily } from "@/design";
 
+export const Typography = {
+  display: fontFamily.display,
+  title: fontFamily.title,
+  titleStrong: fontFamily.titleStrong,
+  body: fontFamily.body,
+  bodyRegular: fontFamily.bodyRegular,
+  bodySemiBold: fontFamily.bodySemiBold,
+  bodyBold: fontFamily.bodyBold,
+  labelTech: fontFamily.labelTech,
+  monoStat: fontFamily.monoStat,
+} as const;

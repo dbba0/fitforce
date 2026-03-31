@@ -1,18 +1,7 @@
 import React from "react";
-import {
-  ActivityIndicator,
-  Pressable,
-  StyleProp,
-  StyleSheet,
-  Text,
-  TextStyle,
-  useColorScheme,
-  View,
-  ViewStyle,
-} from "react-native";
+import { StyleProp, TextStyle, ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Colors } from "@/constants/colors";
-import { Typography } from "@/constants/typography";
+import { AppButton } from "@/ui";
 
 interface PrimaryButtonProps {
   label: string;
@@ -33,53 +22,17 @@ export function PrimaryButton({
   style,
   textStyle,
 }: PrimaryButtonProps) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
-  const isDisabled = disabled || loading;
-
   return (
-    <Pressable
+    <AppButton
+      label={label}
+      icon={icon}
+      variant="primary"
       onPress={onPress}
-      disabled={isDisabled}
-      style={({ pressed }) => [
-        styles.base,
-        {
-          backgroundColor: theme.accent,
-          opacity: isDisabled ? 0.6 : pressed ? 0.84 : 1,
-        },
-        style,
-      ]}
-    >
-      {loading ? (
-        <ActivityIndicator size="small" color="#fff" />
-      ) : (
-        <View style={styles.content}>
-          {icon ? <Ionicons name={icon} size={18} color="#fff" /> : null}
-          <Text style={[styles.label, { fontFamily: Typography.titleStrong }, textStyle]}>{label}</Text>
-        </View>
-      )}
-    </Pressable>
+      loading={loading}
+      disabled={disabled}
+      haptic="light"
+      style={style}
+      textStyle={textStyle}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  base: {
-    height: 52,
-    borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
-  content: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  label: {
-    color: "#fff",
-    fontSize: 16,
-    letterSpacing: 0.3,
-  },
-});

@@ -1,11 +1,10 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,11 +14,27 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Goal, useWorkout, WorkoutSession } from "@/contexts/WorkoutContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { Avatar, Badge, Card, GoalCard, IconButton, PrimaryButton, SectionLabel, StatBlock } from "@/components/ui";
-import { Colors } from "@/constants/colors";
+import {
+  Badge,
+  Card,
+  FeedbackToast,
+  GoalCard,
+  PrimaryButton,
+  SectionLabel,
+  SkeletonCard,
+  StateCard,
+  StatBlock,
+} from "@/components/ui";
 import { PROGRAMS } from "@/data/programs";
 import { TranslationKey } from "@/lib/i18n";
 import { getRecentPrTimeline, RecentPrRecord } from "@/utils/prStorage";
+import { useAppTheme } from "@/hooks";
+import { Typography } from "@/constants/typography";
+import {
+  AthleteIdentityCard,
+  ProfileLevelJourneyCard,
+  ProfileProgramSpotlight,
+} from "@/features/profile";
 
 function formatTemplate(template: string, values: Record<string, string | number>): string {
   return Object.entries(values).reduce(
@@ -91,15 +106,13 @@ function StatTile({
   value,
   label,
   valueColor,
+  textMuted,
 }: {
   value: string;
   label: string;
   valueColor: string;
+  textMuted: string;
 }) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
-
   return (
     <StatBlock
       value={value}
@@ -108,7 +121,7 @@ function StatTile({
       variant="metric"
       style={styles.statCard}
       valueStyle={{ color: valueColor }}
-      labelStyle={{ color: theme.textMuted }}
+      labelStyle={{ color: textMuted }}
     />
   );
 }
@@ -149,22 +162,25 @@ function RecentSessionTile({
   session,
   doneLabel,
   t,
+  colors,
 }: {
   session: WorkoutSession;
   doneLabel: string;
   t: (key: TranslationKey) => string;
+  colors: {
+    card: string;
+    accent: string;
+    text: string;
+    textSecondary: string;
+  };
 }) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
-
   return (
-    <Card style={[styles.activityCard, { backgroundColor: theme.card, borderLeftColor: theme.accent, borderLeftWidth: 4 }]}> 
+    <Card style={[styles.activityCard, { backgroundColor: colors.card, borderLeftColor: colors.accent, borderLeftWidth: 4 }]}>
       <View style={styles.activityMain}>
-        <Text style={[styles.activityTitle, { color: theme.text, fontFamily: "Syne_700Bold" }]} numberOfLines={1}>
+        <Text style={[styles.activityTitle, { color: colors.text, fontFamily: Typography.title }]} numberOfLines={1}>
           {getProgramTitle(session.programId, t)}
         </Text>
-        <Text style={[styles.activityMeta, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
+        <Text style={[styles.activityMeta, { color: colors.textSecondary, fontFamily: Typography.body }]}>
           {`${getRelativeLabel(session.date, t)} · ${session.durationMin} ${t("minutes")} · ${session.calories} ${t("kcal")}`}
         </Text>
       </View>
@@ -178,32 +194,57 @@ function RecentSessionTile({
 
 export default function ProfileScreen() {
   const { t, language } = useLanguage();
-  const { profile, goals, totalWorkouts, totalMinutes, totalCalories, streakDays, sessions } = useWorkout();
+  const { profile, goals, totalWorkouts, totalMinutes, totalCalories, streakDays, sessions, playerProgress, isLoaded } = useWorkout();
   const { user, isGuest, logout } = useAuth();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
+  const { colors, layout, typography } = useAppTheme();
 
   const displayName = user?.displayName || profile.name;
   const [recentRecords, setRecentRecords] = useState<RecentPrRecord[]>([]);
+  const [isRecentRecordsLoading, setIsRecentRecordsLoading] = useState(true);
+  const [recordsError, setRecordsError] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastTone, setToastTone] = useState<"success" | "error">("success");
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      getRecentPrTimeline(4)
-        .then((records) => {
-          if (active) setRecentRecords(records);
-        })
-        .catch(() => {
-          if (active) setRecentRecords([]);
-        });
+  const loadRecentRecords = useCallback((showFeedback = false) => {
+    let active = true;
+    setIsRecentRecordsLoading(true);
+    setRecordsError(false);
 
-      return () => {
-        active = false;
-      };
-    }, [])
-  );
+    getRecentPrTimeline(4)
+      .then((records) => {
+        if (!active) return;
+        setRecentRecords(records);
+        if (showFeedback) {
+          setToastTone("success");
+          setToastMessage(t("stateToastUpdated"));
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setRecentRecords([]);
+        setRecordsError(true);
+        if (showFeedback) {
+          setToastTone("error");
+          setToastMessage(t("stateToastRetryError"));
+        }
+      })
+      .finally(() => {
+        if (active) setIsRecentRecordsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [t]);
+
+  useFocusEffect(useCallback(() => loadRecentRecords(false), [loadRecentRecords]));
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(null), 1800);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
 
   const memberSinceLabel = useMemo(() => {
     const source = user?.createdAt ? new Date(user.createdAt) : new Date();
@@ -233,12 +274,78 @@ export default function ProfileScreen() {
     return t("profileModeGym");
   }, [sessions, t]);
 
+  const objectiveLabel = useMemo(
+    () => t(profile.objective as TranslationKey),
+    [profile.objective, t]
+  );
+
   const topGoals = goals.slice(0, 2);
   const recentSessions = sessions.slice(0, 3);
+
+  const latestCompletedSession = useMemo(
+    () => sessions.find((session) => session.completed) ?? null,
+    [sessions]
+  );
+
+  const latestProgram = useMemo(() => {
+    if (!latestCompletedSession) return null;
+    return PROGRAMS.find((item) => item.id === latestCompletedSession.programId) ?? null;
+  }, [latestCompletedSession]);
+
+  const activeProgramTitle = latestCompletedSession
+    ? getProgramTitle(latestCompletedSession.programId, t)
+    : t("profileActiveProgramEmptyTitle");
+
+  const activeProgramSubtitle = latestCompletedSession
+    ? formatTemplate(t("profileActiveProgramSummaryPattern"), {
+        date: getRelativeLabel(latestCompletedSession.date, t),
+        minutes: latestCompletedSession.durationMin,
+        kcal: latestCompletedSession.calories,
+      })
+    : t("profileActiveProgramEmptySubtitle");
+
+  const activeProgramDetails = latestProgram
+    ? formatTemplate(t("profileActiveProgramDetailsPattern"), {
+        level: t(latestProgram.difficulty as TranslationKey),
+        focus: t(latestProgram.category as TranslationKey),
+      })
+    : undefined;
+
+  const levelProgressLabel = formatTemplate(t("profileJourneyProgressPattern"), {
+    pct: Math.round(playerProgress.progressToNext * 100),
+  });
+
+  const levelSubtitle = playerProgress.nextLevelMinXp
+    ? formatTemplate(t("xpProgressSubtitle"), {
+        current: playerProgress.totalXp,
+        next: playerProgress.nextLevelMinXp,
+      })
+    : t("xpMaxLevel");
+
+  const openActiveProgram = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!latestCompletedSession || !latestProgram) {
+      router.push("/workouts");
+      return;
+    }
+
+    if (latestCompletedSession.type === "cardio") {
+      router.push({ pathname: "/cardio/[id]", params: { id: latestProgram.id } });
+      return;
+    }
+
+    router.push({ pathname: "/session/[id]", params: { id: latestProgram.id } });
+  };
+
+  const openWorkouts = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push("/workouts");
+  };
+
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
 
   const goalVisuals: Record<Goal["type"], { color: string }> = {
-    goalWeight: { color: theme.accent },
+    goalWeight: { color: colors.accent },
     goalWorkoutsPerWeek: { color: "#2DD4A0" },
     goalCalories: { color: "#F5C842" },
     goalWaist: { color: "#5EA8FF" },
@@ -246,20 +353,22 @@ export default function ProfileScreen() {
 
   if (isGuest) {
     return (
-      <View style={[styles.root, { backgroundColor: theme.background }]}> 
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
         <View
           style={{
             paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16,
-            paddingHorizontal: 20,
+            paddingHorizontal: layout.screenPadding,
           }}
         >
-          <Text style={[styles.headerTitle, { color: theme.text, fontFamily: "Syne_800ExtraBold" }]}>{t("profile")}</Text>
+          <Text style={[styles.headerTitle, { color: colors.text, fontFamily: typography.family.titleStrong }]}>{t("profile")}</Text>
         </View>
 
         <View style={styles.guestWrap}>
-          <Ionicons name="lock-closed-outline" size={48} color={theme.textMuted} />
-          <Text style={[styles.guestTitle, { color: theme.text, fontFamily: "Syne_700Bold" }]}>{t("loginToAccess")}</Text>
-          <Text style={[styles.guestSubtitle, { color: theme.textSecondary, fontFamily: "DMSans_400Regular" }]}>
+          <Ionicons name="lock-closed-outline" size={48} color={colors.textMuted} />
+          <Text style={[styles.guestTitle, { color: colors.text, fontFamily: typography.family.title }]}>
+            {t("loginToAccess")}
+          </Text>
+          <Text style={[styles.guestSubtitle, { color: colors.textSecondary, fontFamily: typography.family.bodyRegular }]}>
             {t("guestModePrompt")}
           </Text>
 
@@ -269,92 +378,157 @@ export default function ProfileScreen() {
     );
   }
 
+  if (!isLoaded) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 8,
+            paddingBottom: Platform.OS === "web" ? 118 : insets.bottom + 96,
+            paddingHorizontal: layout.screenPadding,
+            gap: 12,
+          }}
+        >
+          <SkeletonCard height={72} lines={2} />
+          <SkeletonCard height={172} lines={4} style={styles.profileSkeletonCard} />
+          <View style={styles.profileSkeletonStats}>
+            <SkeletonCard height={118} lines={3} style={styles.profileSkeletonStat} />
+            <SkeletonCard height={118} lines={3} style={styles.profileSkeletonStat} />
+          </View>
+          <View style={styles.profileSkeletonStats}>
+            <SkeletonCard height={118} lines={3} style={styles.profileSkeletonStat} />
+            <SkeletonCard height={118} lines={3} style={styles.profileSkeletonStat} />
+          </View>
+          <SkeletonCard height={168} lines={4} style={styles.profileSkeletonCard} />
+          <SkeletonCard height={154} lines={4} style={styles.profileSkeletonCard} />
+        </ScrollView>
+      </View>
+    );
+  }
+
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}> 
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 8,
           paddingBottom: Platform.OS === "web" ? 118 : insets.bottom + 96,
-          paddingHorizontal: 20,
+          paddingHorizontal: layout.screenPadding,
         }}
       >
         <View style={styles.headerRow}>
-          <Text style={[styles.headerTitle, { color: theme.text, fontFamily: "Syne_800ExtraBold" }]}>{t("profile")}</Text>
+          <Text style={[styles.headerTitle, { color: colors.text, fontFamily: typography.family.titleStrong }]}>
+            {t("profile")}
+          </Text>
+        </View>
 
-          <IconButton
-            icon="settings-outline"
-            size={58}
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push("/settings");
-            }}
-            style={[styles.settingsBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+        <AthleteIdentityCard
+          title={t("profileAthleteIdentity")}
+          name={displayName}
+          meta={`${t(profile.level)} · ${memberSinceLabel}`}
+          modeLabel={modeLabel}
+          objectiveLabel={objectiveLabel}
+          streakLabel={streakDays > 0 ? formatTemplate(t("profileStreakChipPattern"), { count: streakDays }) : undefined}
+        />
+
+        <View style={styles.statsGrid}>
+          <StatTile
+            value={formatCompactNumber(totalWorkouts)}
+            label={t("totalSessions").toUpperCase()}
+            valueColor={colors.accent}
+            textMuted={colors.textMuted}
+          />
+          <StatTile
+            value={formatCompactNumber(totalMinutes)}
+            label={t("totalMinutes").toUpperCase()}
+            valueColor={colors.text}
+            textMuted={colors.textMuted}
+          />
+          <StatTile
+            value={formatCompactNumber(totalCalories)}
+            label={t("profileKcalBurnedLabel")}
+            valueColor={colors.text}
+            textMuted={colors.textMuted}
+          />
+          <StatTile
+            value={String(streakDays)}
+            label={t("profileDayStreakLabel")}
+            valueColor="#F5C842"
+            textMuted={colors.textMuted}
           />
         </View>
 
-        <View style={styles.identityRow}>
-          <Avatar name={displayName} size={92} color={theme.accent} mode="tint" style={styles.avatar} />
+        <ProfileProgramSpotlight
+          sectionTitle={t("profileActiveProgram")}
+          title={activeProgramTitle}
+          subtitle={activeProgramSubtitle}
+          details={activeProgramDetails}
+          primaryCtaLabel={latestCompletedSession ? t("continueWorkout") : t("browsePrograms")}
+          secondaryCtaLabel={t("browsePrograms")}
+          onPrimaryPress={openActiveProgram}
+          onSecondaryPress={openWorkouts}
+        />
 
-          <View style={styles.identityMain}>
-            <Text style={[styles.identityName, { color: theme.text, fontFamily: "Syne_800ExtraBold" }]}>{displayName}</Text>
-            <Text style={[styles.identityMeta, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}> 
-              {`${t(profile.level)} · ${memberSinceLabel}`}
-            </Text>
+        <ProfileLevelJourneyCard
+          sectionTitle={t("profileJourney")}
+          levelName={t(playerProgress.levelNameKey)}
+          progress={playerProgress.progressToNext}
+          progressLabel={levelProgressLabel}
+          subtitle={levelSubtitle}
+        />
 
-            <View style={styles.badgesRow}>
-              <Badge label={modeLabel} variant="ember" style={styles.modeBadge} />
-
-              {streakDays > 0 ? (
-                <Badge
-                  label={formatTemplate(t("profileStreakChipPattern"), { count: streakDays })}
-                  variant="gold"
-                  style={styles.streakBadge}
-                />
-              ) : null}
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.statsGrid}>
-          <StatTile value={formatCompactNumber(totalWorkouts)} label={t("totalSessions").toUpperCase()} valueColor={theme.accent} />
-          <StatTile value={formatCompactNumber(totalMinutes)} label={t("totalMinutes").toUpperCase()} valueColor={theme.text} />
-          <StatTile value={formatCompactNumber(totalCalories)} label={t("profileKcalBurnedLabel")} valueColor={theme.text} />
-          <StatTile value={String(streakDays)} label={t("profileDayStreakLabel")} valueColor="#F5C842" />
-        </View>
-
-        <SectionLabel style={styles.recordsSectionLabel} textStyle={styles.sectionLabel}>
+        <SectionLabel
+          style={styles.recordsSectionLabel}
+          textStyle={styles.sectionLabel}
+          action={t("progressOpenAction")}
+          onAction={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push("../(secondary)/progress");
+          }}
+        >
           {t("recentRecords")}
         </SectionLabel>
 
         <View style={styles.recordsList}>
-          {recentRecords.length === 0 ? (
-            <Card style={[styles.emptyCard, { backgroundColor: theme.card }]}> 
-              <Text style={[styles.emptyTitle, { color: theme.text, fontFamily: "Syne_700Bold" }]}>
-                {t("profileNoRecentRecordsTitle")}
-              </Text>
-              <Text style={[styles.emptySubtitle, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
-                {t("profileNoRecentRecordsSubtitle")}
-              </Text>
-            </Card>
+          {isRecentRecordsLoading ? (
+            <SkeletonCard height={120} lines={3} style={styles.recordsSkeletonCard} />
+          ) : recordsError ? (
+            <StateCard
+              variant="error"
+              title={t("stateErrorTitle")}
+              description={t("stateErrorDescription")}
+              actionLabel={t("retry")}
+              onActionPress={() => loadRecentRecords(true)}
+              style={styles.profileStateCard}
+            />
+          ) : recentRecords.length === 0 ? (
+            <StateCard
+              title={t("profileNoRecentRecordsTitle")}
+              description={t("profileNoRecentRecordsSubtitle")}
+              actionLabel={t("startWorkout")}
+              onActionPress={openWorkouts}
+              style={styles.profileStateCard}
+            />
           ) : (
             recentRecords.map((record) => (
               <Card
                 key={record.id}
-                style={[styles.recordCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                borderLeftColor={theme.success}
+                style={[styles.recordCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                borderLeftColor={colors.success}
               >
                 <View style={styles.recordTop}>
-                  <Text style={[styles.recordExercise, { color: theme.text, fontFamily: "Syne_700Bold" }]} numberOfLines={1}>
+                  <Text style={[styles.recordExercise, { color: colors.text, fontFamily: Typography.title }]} numberOfLines={1}>
                     {record.exerciseName}
                   </Text>
                   <Badge label={t("profileRecentRecordBadge")} variant="mint" />
                 </View>
-                <Text style={[styles.recordValue, { color: theme.success, fontFamily: "DMSans_700Bold" }]}>
+                <Text style={[styles.recordValue, { color: colors.success, fontFamily: Typography.bodyBold }]}>
                   {getRecordValueLabel(record, t)}
                 </Text>
-                <Text style={[styles.recordDate, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
+                <Text style={[styles.recordDate, { color: colors.textSecondary, fontFamily: Typography.body }]}>
                   {formatTemplate(t("profileRecentRecordDatePattern"), { date: getRelativeLabel(record.date, t) })}
                 </Text>
               </Card>
@@ -376,15 +550,13 @@ export default function ProfileScreen() {
 
         <View style={styles.goalsList}>
           {topGoals.length === 0 ? (
-            <Pressable
-              onPress={() => router.push("/goals")}
-              style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}
-            >
-              <Card style={[styles.emptyCard, { backgroundColor: theme.card }]}> 
-                <Text style={[styles.emptyTitle, { color: theme.text, fontFamily: "Syne_700Bold" }]}>{t("noGoals")}</Text>
-                <Text style={[styles.emptySubtitle, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>{t("profileNoGoalsCardSubtitle")}</Text>
-              </Card>
-            </Pressable>
+            <StateCard
+              title={t("noGoals")}
+              description={t("profileNoGoalsCardSubtitle")}
+              actionLabel={t("addGoal")}
+              onActionPress={() => router.push("/goals")}
+              style={styles.profileStateCard}
+            />
           ) : (
             topGoals.map((goal) => {
               const visual = goalVisuals[goal.type];
@@ -419,17 +591,60 @@ export default function ProfileScreen() {
 
         <View style={styles.activityList}>
           {recentSessions.length === 0 ? (
-            <Card style={[styles.emptyCard, { backgroundColor: theme.card }]}> 
-              <Text style={[styles.emptyTitle, { color: theme.text, fontFamily: "Syne_700Bold" }]}>{t("noHistoryYet")}</Text>
-              <Text style={[styles.emptySubtitle, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>{t("startYourJourney")}</Text>
-            </Card>
+            <StateCard
+              title={t("noHistoryYet")}
+              description={t("startYourJourney")}
+              actionLabel={t("startWorkout")}
+              onActionPress={openWorkouts}
+              style={styles.profileStateCard}
+            />
           ) : (
             recentSessions.map((session) => (
-              <RecentSessionTile key={session.id} session={session} doneLabel={t("profileDoneBadge")} t={t} />
+              <RecentSessionTile
+                key={session.id}
+                session={session}
+                doneLabel={t("profileDoneBadge")}
+                t={t}
+                colors={colors}
+              />
             ))
           )}
         </View>
+
+        <SectionLabel style={styles.settingsSectionLabel} textStyle={styles.sectionLabel}>
+          {t("profileSettingsFooterTitle")}
+        </SectionLabel>
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push("/settings");
+          }}
+          style={({ pressed }) => [{ opacity: pressed ? 0.86 : 1 }]}
+        >
+          <Card style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.settingsIconWrap, { backgroundColor: colors.cardElevated, borderColor: colors.border }]}>
+              <Ionicons name="settings-outline" size={18} color={colors.textSecondary} />
+            </View>
+            <View style={styles.settingsMain}>
+              <Text style={[styles.settingsTitle, { color: colors.text, fontFamily: Typography.bodySemiBold }]}>
+                {t("settings")}
+              </Text>
+              <Text style={[styles.settingsSubtitle, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
+                {t("profileSettingsFooterSubtitle")}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </Card>
+        </Pressable>
       </ScrollView>
+
+      <FeedbackToast
+        message={toastMessage}
+        tone={toastTone}
+        style={{
+          bottom: Platform.OS === "web" ? 24 : insets.bottom + 10,
+        }}
+      />
     </View>
   );
 }
@@ -437,73 +652,48 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: 14,
   },
   headerTitle: {
-    fontSize: 46,
-    lineHeight: 48,
-    letterSpacing: -1.2,
+    fontSize: 42,
+    lineHeight: 44,
+    letterSpacing: -1,
   },
-  settingsBtn: {
-    width: 58,
-    height: 58,
-    borderRadius: 18,
-    borderWidth: 1,
+  profileSkeletonCard: {
+    borderRadius: 20,
   },
-  identityRow: {
+  profileSkeletonStats: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-    marginBottom: 18,
+    gap: 12,
   },
-  avatar: {
-    borderWidth: 2,
-  },
-  identityMain: {
+  profileSkeletonStat: {
     flex: 1,
-  },
-  identityName: {
-    fontSize: 22,
-    lineHeight: 26,
-    letterSpacing: -0.9,
-  },
-  identityMeta: {
-    fontSize: 14,
-    marginTop: 3,
-  },
-  badgesRow: {
-    marginTop: 10,
-    flexDirection: "row",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  modeBadge: {
-    minHeight: 34,
-    paddingHorizontal: 14,
-  },
-  streakBadge: {
-    minHeight: 34,
-    paddingHorizontal: 14,
+    borderRadius: 18,
   },
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 12,
-    marginBottom: 18,
+    marginTop: 12,
+    marginBottom: 16,
   },
   statCard: {
     width: "48%",
     minHeight: 118,
   },
   recordsSectionLabel: {
+    marginTop: 18,
     marginBottom: 10,
   },
   recordsList: {
     gap: 10,
     marginBottom: 16,
+  },
+  recordsSkeletonCard: {
+    borderRadius: 20,
+  },
+  profileStateCard: {
+    borderRadius: 20,
   },
   recordCard: {
     borderRadius: 20,
@@ -528,6 +718,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   sectionHeader: {
+    marginTop: 14,
     marginBottom: 10,
   },
   sectionLabel: {
@@ -545,6 +736,7 @@ const styles = StyleSheet.create({
   activityList: {
     gap: 10,
     marginTop: 10,
+    marginBottom: 8,
   },
   activityCard: {
     borderRadius: 22,
@@ -578,6 +770,37 @@ const styles = StyleSheet.create({
   },
   emptySubtitle: {
     fontSize: 14,
+  },
+  settingsSectionLabel: {
+    marginTop: 18,
+    marginBottom: 10,
+  },
+  settingsCard: {
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  settingsIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsMain: {
+    flex: 1,
+    gap: 2,
+  },
+  settingsTitle: {
+    fontSize: 14,
+  },
+  settingsSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
   },
   guestWrap: {
     flex: 1,

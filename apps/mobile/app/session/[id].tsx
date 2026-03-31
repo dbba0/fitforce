@@ -16,11 +16,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import Animated, {
   FadeIn,
   FadeInDown,
+  FadeOutUp,
   FadeInUp,
   runOnJS,
   useAnimatedReaction,
   useAnimatedStyle,
   useSharedValue,
+  withSequence,
   withDelay,
   withTiming,
 } from "react-native-reanimated";
@@ -30,8 +32,10 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWorkout } from "@/contexts/WorkoutContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAppTheme } from "@/hooks";
 import ExerciseMedia from "@/components/ExerciseMedia";
 import { GhostButton, PrimaryButton, SetDots } from "@/components/ui";
+import { AppCard } from "@/ui";
 import { TranslationKey } from "@/lib/i18n";
 import { PROGRAMS } from "@/data/programs";
 import { EXERCISES, MuscleGroup } from "@/data/exercises";
@@ -209,6 +213,29 @@ function CircleTimer({
   );
 }
 
+function CountdownBadge({ value, color }: { value: number; color: string }) {
+  const scale = useSharedValue(0.8);
+
+  useEffect(() => {
+    scale.value = 0.8;
+    scale.value = withSequence(
+      withTiming(1.08, { duration: 180 }),
+      withTiming(1, { duration: 180 })
+    );
+  }, [scale, value]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+    opacity: withTiming(1, { duration: 120 }),
+  }));
+
+  return (
+    <Animated.View style={[styles.resumeCountdownBubble, { backgroundColor: `${color}20`, borderColor: `${color}55` }, animatedStyle]}>
+      <Text style={[styles.resumeCountdownValue, { color, fontFamily: Typography.titleStrong }]}>{value}</Text>
+    </Animated.View>
+  );
+}
+
 function CountUpValue({
   target,
   duration = 900,
@@ -300,6 +327,8 @@ function CompletionScreen({
   totalMinutes,
   totalCalories,
   exercisesCount,
+  completedSetCount,
+  plannedSetCount,
   prHits,
   onClose,
 }: {
@@ -307,6 +336,8 @@ function CompletionScreen({
   totalMinutes: number;
   totalCalories: number;
   exercisesCount: number;
+  completedSetCount?: number;
+  plannedSetCount?: number;
   prHits: SessionPrHit[];
   onClose: () => void;
 }) {
@@ -327,6 +358,13 @@ function CompletionScreen({
   const programName = program
     ? t(program.nameKey as TranslationKey)
     : programId;
+  const nextProgram = useMemo(
+    () =>
+      PROGRAMS.find((item) => item.id !== programId && item.type === program?.type) ??
+      PROGRAMS.find((item) => item.id !== programId) ??
+      null,
+    [program?.type, programId]
+  );
 
   useEffect(() => {
     if (initialized.current) return;
@@ -418,12 +456,16 @@ function CompletionScreen({
     }
   };
 
-  const hasCurrentSessionInList = useMemo(() => {
-    return sessions.some((session) => {
-      const delta = Math.abs(new Date(session.date).getTime() - new Date(completionDateRef.current).getTime());
-      return session.programId === programId && session.durationMin === totalMinutes && delta < 120000;
-    });
-  }, [programId, sessions, totalMinutes]);
+  const hasCurrentSessionInList = useMemo(
+    () =>
+      sessions.some((session) => {
+        const delta = Math.abs(
+          new Date(session.date).getTime() - new Date(completionDateRef.current).getTime()
+        );
+        return session.programId === programId && session.durationMin === totalMinutes && delta < 120000;
+      }),
+    [programId, sessions, totalMinutes]
+  );
 
   const weekComparison = useMemo(() => {
     const source = hasCurrentSessionInList
@@ -442,39 +484,10 @@ function CompletionScreen({
     return getWeekComparison(source);
   }, [hasCurrentSessionInList, programId, sessions, totalCalories, totalMinutes]);
 
-  const weekMetrics = useMemo(
-    () => [
-      {
-        key: "sessions",
-        label: t("sessionWeekSessionsLabel"),
-        current: weekComparison.current.sessions,
-        previous: weekComparison.previous.sessions,
-        unit: "",
-      },
-      {
-        key: "duration",
-        label: t("sessionWeekDurationLabel"),
-        current: weekComparison.current.durationMin,
-        previous: weekComparison.previous.durationMin,
-        unit: t("minutes"),
-      },
-      {
-        key: "kcal",
-        label: t("sessionWeekCaloriesLabel"),
-        current: weekComparison.current.calories,
-        previous: weekComparison.previous.calories,
-        unit: t("kcal"),
-      },
-      {
-        key: "regularity",
-        label: t("sessionWeekRegularityLabel"),
-        current: Math.round((weekComparison.current.activeDays / 7) * 100),
-        previous: Math.round((weekComparison.previous.activeDays / 7) * 100),
-        unit: "%",
-      },
-    ],
-    [t, weekComparison]
-  );
+  const setProgressPct =
+    typeof completedSetCount === "number" && typeof plannedSetCount === "number" && plannedSetCount > 0
+      ? Math.max(0, Math.min(100, Math.round((completedSetCount / plannedSetCount) * 100)))
+      : null;
 
   const stats = [
     {
@@ -505,7 +518,16 @@ function CompletionScreen({
       label: t("sessionStreakLabel"),
       color: "#F5C842",
     },
-  ];
+  ].filter((item) => !(item.key === "burned" && totalCalories <= 0));
+
+  const handleNextSession = () => {
+    if (!nextProgram) {
+      router.push("/workouts");
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    router.replace({ pathname: "/session/[id]", params: { id: nextProgram.id } });
+  };
 
   return (
     <View style={[styles.completionScreen, { backgroundColor: theme.background }]}> 
@@ -526,9 +548,12 @@ function CompletionScreen({
           <Text style={[styles.completionSubtitle, { color: theme.textSecondary, fontFamily: Typography.body }]}> 
             {programName}
           </Text>
+          <Text style={[styles.completionMessage, { color: theme.textSecondary, fontFamily: Typography.body }]}>
+            {t("sessionCelebrationLine")}
+          </Text>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(120).duration(450)} style={styles.completionGrid}> 
+        <Animated.View entering={FadeInDown.delay(120).duration(420)} style={styles.completionGrid}> 
           {stats.map((stat, index) => (
             <View
               key={`${stat.key}-${index}`}
@@ -548,93 +573,36 @@ function CompletionScreen({
           ))}
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(150).duration(450)} style={[styles.comparisonCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Text style={[styles.comparisonTitle, { color: theme.text, fontFamily: Typography.title }]}>
-            {t("sessionWeekComparisonTitle")}
-          </Text>
-          <Text style={[styles.comparisonBody, { color: theme.textSecondary, fontFamily: Typography.body }]}>
-            {formatTemplate(t("sessionWeekComparisonBody"), {
-              current: weekComparison.current.sessions,
-              previous: weekComparison.previous.sessions,
-            })}
-          </Text>
-
-          <View style={styles.comparisonMetricsGrid}>
-            {weekMetrics.map((metric) => (
-              <View key={metric.key} style={[styles.comparisonMetricCard, { backgroundColor: theme.cardElevated, borderColor: theme.border }]}>
-                <Text style={[styles.comparisonMetricCurrent, { color: theme.text, fontFamily: Typography.title }]}>
-                  {metric.current}{metric.unit}
-                </Text>
-                <Text style={[styles.comparisonMetricLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
-                  {metric.label}
-                </Text>
-                <Text style={[styles.comparisonMetricPrevious, { color: theme.textSecondary, fontFamily: Typography.body }]}>
-                  {formatTemplate(t("sessionWeekPreviousValue"), {
-                    value: `${metric.previous}${metric.unit}`,
-                  })}
-                </Text>
-              </View>
-            ))}
-          </View>
-
-          <View style={styles.regularityWrap}>
-            <View style={styles.regularityRow}>
-              <Text style={[styles.regularityLabel, { color: theme.textSecondary, fontFamily: Typography.body }]}>
-                {t("sessionWeekCurrentLabel")}
-              </Text>
-              <View style={styles.regularityDots}>
-                {weekComparison.current.activityMap.map((isDone, index) => (
-                  <View
-                    key={`current-${index}`}
-                    style={[
-                      styles.regularityDot,
-                      {
-                        backgroundColor: isDone ? theme.accent : theme.cardElevated,
-                        borderColor: isDone ? theme.accent : theme.border,
-                      },
-                    ]}
-                  />
-                ))}
-              </View>
-            </View>
-            <View style={styles.regularityRow}>
-              <Text style={[styles.regularityLabel, { color: theme.textSecondary, fontFamily: Typography.body }]}>
-                {t("sessionWeekPreviousLabel")}
-              </Text>
-              <View style={styles.regularityDots}>
-                {weekComparison.previous.activityMap.map((isDone, index) => (
-                  <View
-                    key={`previous-${index}`}
-                    style={[
-                      styles.regularityDot,
-                      {
-                        backgroundColor: isDone ? `${theme.textSecondary}CC` : theme.cardElevated,
-                        borderColor: isDone ? `${theme.textSecondary}CC` : theme.border,
-                      },
-                    ]}
-                  />
-                ))}
-              </View>
-            </View>
-          </View>
-
-          <Text
-            style={[
-              styles.comparisonDelta,
-              {
-                color: weekComparison.deltaSessions >= 0 ? theme.success : theme.textSecondary,
-                fontFamily: Typography.bodySemiBold,
-              },
-            ]}
+        {setProgressPct !== null ? (
+          <Animated.View
+            entering={FadeInDown.delay(150).duration(380)}
+            style={[styles.comparisonCard, { backgroundColor: theme.card, borderColor: theme.border }]}
           >
-            {weekComparison.deltaSessions >= 0
-              ? formatTemplate(t("sessionWeekComparisonDeltaPositive"), { delta: weekComparison.deltaSessions })
-              : t("sessionWeekComparisonDeltaKeep")}
-          </Text>
-        </Animated.View>
+            <Text style={[styles.comparisonTitle, { color: theme.text, fontFamily: Typography.title }]}>
+              {t("sessionProgressSummaryTitle")}
+            </Text>
+            <Text style={[styles.comparisonBody, { color: theme.textSecondary, fontFamily: Typography.body }]}>
+              {formatTemplate(t("sessionSeriesProgressPattern"), {
+                completed: completedSetCount ?? 0,
+                planned: plannedSetCount ?? 0,
+              })}
+            </Text>
+            <View style={[styles.xpSummaryTrack, { backgroundColor: theme.cardElevated, marginTop: 2 }]}>
+              <View
+                style={[
+                  styles.xpSummaryFill,
+                  {
+                    width: `${setProgressPct}%` as const,
+                    backgroundColor: theme.accent,
+                  },
+                ]}
+              />
+            </View>
+          </Animated.View>
+        ) : null}
 
         {prHits.length > 0 ? (
-          <Animated.View entering={FadeInDown.delay(180).duration(450)} style={[styles.prListCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Animated.View entering={FadeInDown.delay(180).duration(360)} style={[styles.prListCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <Text style={[styles.prListTitle, { color: theme.text, fontFamily: Typography.title }]}>
               {t("sessionPrListTitle")}
             </Text>
@@ -651,7 +619,7 @@ function CompletionScreen({
           </Animated.View>
         ) : null}
 
-        <Animated.View entering={FadeInDown.delay(200).duration(450)} style={[styles.xpSummaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <Animated.View entering={FadeInDown.delay(200).duration(380)} style={[styles.xpSummaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
           <View style={styles.xpSummaryTop}>
             <Text style={[styles.xpSummaryTitle, { color: theme.text, fontFamily: Typography.title }]}>
               {t("xpLabel")}
@@ -674,6 +642,19 @@ function CompletionScreen({
               ]}
             />
           </View>
+          <Text
+            style={[
+              styles.comparisonDelta,
+              {
+                color: weekComparison.deltaSessions >= 0 ? theme.success : theme.textSecondary,
+                fontFamily: Typography.bodySemiBold,
+              },
+            ]}
+          >
+            {weekComparison.deltaSessions >= 0
+              ? formatTemplate(t("sessionWeekComparisonDeltaPositive"), { delta: weekComparison.deltaSessions })
+              : t("sessionWeekComparisonDeltaKeep")}
+          </Text>
         </Animated.View>
 
         {levelUpReached ? (
@@ -694,21 +675,26 @@ function CompletionScreen({
           </Animated.View>
         ) : null}
 
-        <Animated.View entering={FadeInUp.delay(200).duration(450)} style={styles.completionActions}> 
+        <Animated.View entering={FadeInUp.delay(220).duration(420)} style={styles.completionActions}> 
           <PrimaryButton
-            label={t("shareToFeed")}
-            onPress={handleShare}
-            loading={openingFeed}
-            disabled={openingFeed}
+            label={t("sessionBackHome")}
+            onPress={onClose}
             style={styles.sharePrimaryBtn}
             textStyle={styles.sharePrimaryBtnText}
           />
 
+          <PrimaryButton
+            label={t("sessionNextWorkoutCta")}
+            onPress={handleNextSession}
+            style={[styles.backHomeBtn, { backgroundColor: theme.cardElevated }]}
+            textStyle={[styles.backHomeBtnText, { color: theme.accent }]}
+          />
+
           <GhostButton
-            label={t("sessionBackHome")}
-            onPress={onClose}
-            style={styles.backHomeBtn}
-            textStyle={styles.backHomeBtnText}
+            label={t("shareToFeed")}
+            onPress={handleShare}
+            style={styles.shareGhostBtn}
+            textStyle={[styles.shareGhostText, { color: theme.textSecondary }]}
           />
         </Animated.View>
       </ScrollView>
@@ -723,6 +709,7 @@ export default function SessionScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const theme = isDark ? Colors.dark : Colors.light;
+  const { radius } = useAppTheme();
   const { getCustomization } = useWorkout();
 
   const program = PROGRAMS.find((item) => item.id === id);
@@ -748,16 +735,26 @@ export default function SessionScreen() {
   const [phase, setPhase] = useState<Phase>("active");
   const [elapsed, setElapsed] = useState(0);
   const [restLeft, setRestLeft] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [resumeCountdown, setResumeCountdown] = useState<number | null>(null);
   const [prToast, setPrToast] = useState<{ score: number } | null>(null);
   const [sessionPrHits, setSessionPrHits] = useState<SessionPrHit[]>([]);
+  const [validationTick, setValidationTick] = useState(0);
+  const [showSetValidationSuccess, setShowSetValidationSuccess] = useState(false);
   const [exerciseHistoryMap, setExerciseHistoryMap] = useState<Record<string, ExerciseLastPerformance>>({});
 
   const elapsedRef = useRef(0);
   const activeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const doneSetScale = useSharedValue(1);
+  const doneSetAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: doneSetScale.value }],
+  }));
 
   const currentWorkout = workoutsWithEx[exIndex];
   const currentExercise = currentWorkout?.exercise;
+  const nextWorkout = workoutsWithEx[exIndex + 1];
+  const nextExercise = nextWorkout?.exercise;
   const totalExercises = workoutsWithEx.length;
 
   useEffect(() => {
@@ -779,13 +776,36 @@ export default function SessionScreen() {
   }, [prToast]);
 
   useEffect(() => {
+    if (!showSetValidationSuccess) return;
+    const timeout = setTimeout(() => setShowSetValidationSuccess(false), 900);
+    return () => clearTimeout(timeout);
+  }, [showSetValidationSuccess, validationTick]);
+
+  useEffect(() => {
+    if (resumeCountdown === null) return;
+
+    const timeout = setTimeout(() => {
+      if (resumeCountdown <= 1) {
+        setResumeCountdown(null);
+        setIsPaused(false);
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        return;
+      }
+      setResumeCountdown((prev) => (prev == null ? prev : prev - 1));
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }, 680);
+
+    return () => clearTimeout(timeout);
+  }, [resumeCountdown]);
+
+  useEffect(() => {
     getExerciseHistoryMap()
       .then((map) => setExerciseHistoryMap(map))
       .catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (phase !== "active") return;
+    if (phase !== "active" || isPaused || resumeCountdown !== null) return;
     activeIntervalRef.current = setInterval(() => {
       elapsedRef.current += 1;
       setElapsed(elapsedRef.current);
@@ -794,7 +814,7 @@ export default function SessionScreen() {
     return () => {
       if (activeIntervalRef.current) clearInterval(activeIntervalRef.current);
     };
-  }, [phase]);
+  }, [phase, isPaused, resumeCountdown]);
 
   const advanceAfterRest = useCallback(() => {
     const nextSet = setIndex + 1;
@@ -816,7 +836,7 @@ export default function SessionScreen() {
   }, [setIndex, currentWorkout?.effectiveSets, exIndex, workoutsWithEx.length]);
 
   useEffect(() => {
-    if (phase !== "rest" || restLeft <= 0) return;
+    if (phase !== "rest" || restLeft <= 0 || isPaused || resumeCountdown !== null) return;
 
     restIntervalRef.current = setInterval(() => {
       setRestLeft((prev) => {
@@ -833,10 +853,18 @@ export default function SessionScreen() {
     return () => {
       if (restIntervalRef.current) clearInterval(restIntervalRef.current);
     };
-  }, [phase, restLeft, advanceAfterRest]);
+  }, [phase, restLeft, advanceAfterRest, isPaused, resumeCountdown]);
 
   const handleSetDone = () => {
+    if (isPaused || resumeCountdown !== null) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    doneSetScale.value = withSequence(
+      withTiming(0.94, { duration: 90 }),
+      withTiming(1.06, { duration: 120 }),
+      withTiming(1, { duration: 140 })
+    );
+    setValidationTick((prev) => prev + 1);
+    setShowSetValidationSuccess(true);
     const reps = typeof currentWorkout?.effectiveReps === "number" ? currentWorkout.effectiveReps : 0;
     const weight = Number(currentWorkout?.effectiveWeight ?? 0);
     const exerciseId = currentWorkout?.exerciseId;
@@ -897,14 +925,28 @@ export default function SessionScreen() {
   };
 
   const handleSkipRest = () => {
+    if (isPaused || resumeCountdown !== null) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     if (restIntervalRef.current) clearInterval(restIntervalRef.current);
     advanceAfterRest();
   };
 
   const handleAddThirtySeconds = () => {
+    if (isPaused || resumeCountdown !== null) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setRestLeft((prev) => prev + 30);
+  };
+
+  const handlePauseSession = () => {
+    if (phase === "done" || isPaused || resumeCountdown !== null) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setIsPaused(true);
+  };
+
+  const handleResumeSession = () => {
+    if (!isPaused || resumeCountdown !== null) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setResumeCountdown(3);
   };
 
   const handlePrevious = () => {
@@ -975,12 +1017,19 @@ export default function SessionScreen() {
   if (phase === "done") {
     const totalMinutes = Math.max(1, Math.round(elapsedRef.current / 60));
     const totalCalories = Math.round((program.caloriesPerSession * totalMinutes) / Math.max(1, program.durationMin));
+    const plannedSetCount = workoutsWithEx.reduce((sum, workout) => sum + Math.max(0, workout.effectiveSets ?? 0), 0);
+    const completedBeforeCurrent = workoutsWithEx
+      .slice(0, exIndex)
+      .reduce((sum, workout) => sum + Math.max(0, workout.effectiveSets ?? 0), 0);
+    const completedSetCount = Math.min(plannedSetCount, completedBeforeCurrent + Math.max(1, setIndex + 1));
     return (
       <CompletionScreen
         programId={program.id}
         totalMinutes={totalMinutes}
         totalCalories={totalCalories}
         exercisesCount={workoutsWithEx.length}
+        completedSetCount={completedSetCount}
+        plannedSetCount={plannedSetCount}
         prHits={sessionPrHits}
         onClose={handleClose}
       />
@@ -990,6 +1039,9 @@ export default function SessionScreen() {
   const exerciseTranslation =
     currentExercise?.translations?.[language as keyof typeof currentExercise.translations] ??
     currentExercise?.translations?.en;
+  const nextExerciseTranslation =
+    nextExercise?.translations?.[language as keyof typeof nextExercise.translations] ??
+    nextExercise?.translations?.en;
 
   const exerciseProgress = Math.max(
     0,
@@ -998,6 +1050,7 @@ export default function SessionScreen() {
 
   const setProgress = currentWorkout?.effectiveSets ?? 1;
   const displayedSet = setIndex + 1;
+  const setProgressPct = Math.round((displayedSet / Math.max(1, setProgress)) * 100);
   const primaryMuscle = currentExercise?.muscles?.[0];
   const muscleLabel = primaryMuscle ? t(getMuscleLabelKey(primaryMuscle)) : t("fullBody");
   const equipmentLabel = currentExercise
@@ -1062,12 +1115,26 @@ export default function SessionScreen() {
             {progressLabel}
           </Text>
 
-          <View style={[styles.headerIconBtn, { backgroundColor: theme.card, borderColor: theme.border }]}> 
-            <Ionicons name="time-outline" size={20} color={theme.textSecondary} />
+          <Pressable
+            onPress={isPaused ? handleResumeSession : handlePauseSession}
+            style={({ pressed }) => [
+              styles.headerIconBtn,
+              {
+                backgroundColor: theme.card,
+                borderColor: isPaused ? `${theme.accent}66` : theme.border,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+          >
+            <Ionicons
+              name={isPaused ? "play" : "pause"}
+              size={18}
+              color={isPaused ? theme.accent : theme.textSecondary}
+            />
             <Text style={[styles.headerElapsedText, { color: theme.textMuted, fontFamily: Typography.bodySemiBold }]}> 
               {formatTime(elapsed)}
             </Text>
-          </View>
+          </Pressable>
         </View>
       </View>
 
@@ -1079,6 +1146,52 @@ export default function SessionScreen() {
           <Text style={[styles.exerciseTitle, { color: theme.text, fontFamily: Typography.titleStrong }]}> 
             {exerciseTranslation?.name}
           </Text>
+
+          <AppCard
+            variant="elevated"
+            style={[
+              styles.immersiveTimerCard,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                borderRadius: radius.lg,
+              },
+            ]}
+          >
+            <View style={styles.immersiveTimerTopRow}>
+              <Text style={[styles.immersiveTimerLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+                {t("sessionDurationLabel").toUpperCase()}
+              </Text>
+              <Text style={[styles.immersiveTimerProgress, { color: theme.textSecondary, fontFamily: Typography.bodySemiBold }]}>
+                {progressLabel}
+              </Text>
+            </View>
+
+            <Text style={[styles.immersiveTimerValue, { color: theme.text, fontFamily: Typography.titleStrong }]}>
+              {formatTime(elapsed)}
+            </Text>
+
+            <View style={styles.setLine}> 
+              <Text style={[styles.setLineLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}> 
+                {t("set").toUpperCase()}
+              </Text>
+              <SetDots total={setProgress} current={setIndex} done={setIndex - 1} style={styles.setDotsRow} />
+              <Text style={[styles.setLineCount, { color: theme.textMuted, fontFamily: Typography.labelTech }]}> 
+                {displayedSet} / {setProgress}
+              </Text>
+            </View>
+            <View style={[styles.setProgressTrack, { backgroundColor: theme.border }]}>
+              <View
+                style={[
+                  styles.setProgressFill,
+                  {
+                    width: `${setProgressPct}%` as const,
+                    backgroundColor: theme.accent,
+                  },
+                ]}
+              />
+            </View>
+          </AppCard>
 
           {lastPerformance ? (
             <Text
@@ -1097,16 +1210,6 @@ export default function SessionScreen() {
               })}
             </Text>
           ) : null}
-
-          <View style={styles.setLine}> 
-            <Text style={[styles.setLineLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}> 
-              {t("set").toUpperCase()}
-            </Text>
-            <SetDots total={setProgress} current={setIndex} done={setIndex - 1} style={styles.setDotsRow} />
-            <Text style={[styles.setLineCount, { color: theme.textMuted, fontFamily: Typography.labelTech }]}> 
-              {displayedSet} / {setProgress}
-            </Text>
-          </View>
 
           {prToast ? (
             <Animated.View
@@ -1134,7 +1237,7 @@ export default function SessionScreen() {
           <ExerciseMedia
             exerciseId={currentExercise?.id}
             type="auto"
-            size={168}
+            size={190}
             autoPlay={phase === "active"}
             loop
             isActive={phase === "active"}
@@ -1144,6 +1247,35 @@ export default function SessionScreen() {
             theme={theme}
             highlightColor={theme.accent}
           />
+
+          {nextExerciseTranslation?.name ? (
+            <AppCard
+              variant="default"
+              style={[
+                styles.nextExerciseCard,
+                {
+                  backgroundColor: theme.cardElevated,
+                  borderColor: theme.border,
+                  borderRadius: radius.md,
+                },
+              ]}
+            >
+              <Text style={[styles.nextExerciseLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+                {t("nextExercise").toUpperCase()}
+              </Text>
+              <View style={styles.nextExerciseRow}>
+                <Text
+                  style={[styles.nextExerciseName, { color: theme.text, fontFamily: Typography.bodySemiBold }]}
+                  numberOfLines={1}
+                >
+                  {nextExerciseTranslation.name}
+                </Text>
+                <Text style={[styles.nextExerciseMeta, { color: theme.textSecondary, fontFamily: Typography.body }]}>
+                  {`${nextWorkout?.effectiveSets ?? 0} × ${nextWorkout?.effectiveReps ?? "-"}`}
+                </Text>
+              </View>
+            </AppCard>
+          ) : null}
 
           <View style={styles.metricsRow}> 
             <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}> 
@@ -1191,31 +1323,49 @@ export default function SessionScreen() {
             </View>
           </View>
 
-          <Pressable
-            onPress={handleSetDone}
-            style={({ pressed }) => [
-              styles.doneSetBtn,
-              {
-                backgroundColor: theme.accent,
-                opacity: pressed ? 0.86 : 1,
-                transform: [{ scale: pressed ? 0.98 : 1 }],
-              },
-            ]}
-          >
-            <Ionicons name="checkmark" size={22} color="#fff" />
-            <Text style={[styles.doneSetBtnText, { fontFamily: Typography.titleStrong }]}> 
-              {doneSetLabel}
-            </Text>
-          </Pressable>
+          <Animated.View style={doneSetAnimatedStyle}>
+            <Pressable
+              onPress={handleSetDone}
+              disabled={isPaused || resumeCountdown !== null}
+              style={({ pressed }) => [
+                styles.doneSetBtn,
+                {
+                  backgroundColor: theme.accent,
+                  opacity: isPaused || resumeCountdown !== null ? 0.45 : pressed ? 0.86 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="checkmark" size={22} color="#fff" />
+              <Text style={[styles.doneSetBtnText, { fontFamily: Typography.titleStrong }]}> 
+                {doneSetLabel}
+              </Text>
+            </Pressable>
+          </Animated.View>
+
+          <View style={styles.setSuccessSlot}>
+            {showSetValidationSuccess ? (
+              <Animated.View
+                key={`set-success-${validationTick}`}
+                entering={FadeInUp.duration(180)}
+                exiting={FadeOutUp.duration(220)}
+                style={[styles.setSuccessChip, { backgroundColor: `${theme.success}22`, borderColor: `${theme.success}66` }]}
+              >
+                <Ionicons name="checkmark-circle" size={16} color={theme.success} />
+                <Text style={[styles.setSuccessText, { color: theme.success, fontFamily: Typography.bodySemiBold }]}>
+                  {t("setComplete")}
+                </Text>
+              </Animated.View>
+            ) : null}
+          </View>
 
           <View style={styles.bottomActionsRow}> 
             <Pressable
               onPress={handlePrevious}
-              disabled={setIndex === 0 && exIndex === 0}
+              disabled={setIndex === 0 && exIndex === 0 || isPaused || resumeCountdown !== null}
               style={({ pressed }) => [
                 styles.secondaryAction,
                 {
-                  opacity: setIndex === 0 && exIndex === 0 ? 0.3 : pressed ? 0.7 : 1,
+                  opacity: setIndex === 0 && exIndex === 0 || isPaused || resumeCountdown !== null ? 0.3 : pressed ? 0.7 : 1,
                 },
               ]}
             >
@@ -1224,7 +1374,14 @@ export default function SessionScreen() {
               </Text>
             </Pressable>
 
-            <Pressable onPress={handleSkipExercise} style={({ pressed }) => [styles.secondaryAction, { opacity: pressed ? 0.7 : 1 }]}> 
+            <Pressable
+              onPress={handleSkipExercise}
+              disabled={isPaused || resumeCountdown !== null}
+              style={({ pressed }) => [
+                styles.secondaryAction,
+                { opacity: isPaused || resumeCountdown !== null ? 0.3 : pressed ? 0.7 : 1 },
+              ]}
+            > 
               <Text style={[styles.secondaryActionText, { color: theme.textMuted, fontFamily: Typography.bodySemiBold }]}> 
                 {t("sessionSkipAction")}
               </Text>
@@ -1268,6 +1425,43 @@ export default function SessionScreen() {
           </View>
         </Animated.View>
       )}
+
+      {isPaused ? (
+        <Animated.View entering={FadeIn.duration(160)} style={[styles.pauseOverlay, { backgroundColor: theme.overlay }]}>
+          {resumeCountdown !== null ? (
+            <View style={[styles.pauseCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.pauseTitle, { color: theme.text, fontFamily: Typography.titleStrong }]}>
+                {t("resume")}
+              </Text>
+              <CountdownBadge value={resumeCountdown} color={theme.accent} />
+            </View>
+          ) : (
+            <View style={[styles.pauseCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.pauseHeader}>
+                <Ionicons name="pause" size={18} color={theme.accent} />
+                <Text style={[styles.pauseTitle, { color: theme.text, fontFamily: Typography.titleStrong }]}>
+                  {t("pause")}
+                </Text>
+              </View>
+              <Text style={[styles.pauseSubtitle, { color: theme.textSecondary, fontFamily: Typography.body }]}>
+                {t("sessionPausedHint")}
+              </Text>
+              <View style={styles.pauseActions}>
+                <PrimaryButton
+                  label={t("resume")}
+                  onPress={handleResumeSession}
+                  style={styles.pauseResumeBtn}
+                />
+                <GhostButton
+                  label={t("finish")}
+                  onPress={handleFinishEarly}
+                  style={styles.pauseFinishBtn}
+                />
+              </View>
+            </View>
+          )}
+        </Animated.View>
+      ) : null}
     </View>
   );
 }
@@ -1313,23 +1507,48 @@ const styles = StyleSheet.create({
   },
   activeContent: {
     flex: 1,
-    paddingHorizontal: 22,
+    paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 24,
-    gap: 14,
+    paddingBottom: 20,
+    gap: 12,
   },
   exerciseMeta: {
-    fontSize: 14,
-    letterSpacing: 1,
+    fontSize: 12,
+    letterSpacing: 1.2,
     textTransform: "uppercase",
   },
   exerciseTitle: {
-    fontSize: 48,
-    lineHeight: 50,
+    fontSize: 52,
+    lineHeight: 54,
+    letterSpacing: -1,
+  },
+  immersiveTimerCard: {
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  immersiveTimerTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  immersiveTimerLabel: {
+    fontSize: 10,
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+  },
+  immersiveTimerProgress: {
+    fontSize: 12,
+  },
+  immersiveTimerValue: {
+    fontSize: 58,
+    lineHeight: 60,
+    letterSpacing: -1.2,
   },
   vsLastText: {
     fontSize: 13,
-    marginTop: -4,
+    marginTop: -2,
   },
   setLine: {
     flexDirection: "row",
@@ -1347,6 +1566,15 @@ const styles = StyleSheet.create({
   setLineCount: {
     fontSize: 11,
     letterSpacing: 1.1,
+  },
+  setProgressTrack: {
+    height: 6,
+    borderRadius: 999,
+    overflow: "hidden",
+  },
+  setProgressFill: {
+    height: "100%",
+    borderRadius: 999,
   },
   prToast: {
     width: "100%",
@@ -1366,6 +1594,29 @@ const styles = StyleSheet.create({
   },
   prValue: {
     fontSize: 14,
+  },
+  nextExerciseCard: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 6,
+  },
+  nextExerciseLabel: {
+    fontSize: 10,
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+  },
+  nextExerciseRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  nextExerciseName: {
+    flex: 1,
+    fontSize: 16,
+  },
+  nextExerciseMeta: {
+    fontSize: 13,
   },
   metricsRow: {
     flexDirection: "row",
@@ -1393,20 +1644,42 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
   },
   doneSetBtn: {
-    marginTop: 6,
+    marginTop: "auto",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    height: 74,
-    borderRadius: 36,
+    height: 82,
+    borderRadius: 40,
+    shadowColor: "#F55F2B",
+    shadowOpacity: 0.35,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
   },
   doneSetBtnText: {
     color: "#fff",
-    fontSize: 18,
+    fontSize: 20,
+  },
+  setSuccessSlot: {
+    minHeight: 34,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  setSuccessChip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  setSuccessText: {
+    fontSize: 13,
   },
   bottomActionsRow: {
-    marginTop: 2,
+    marginTop: 4,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -1501,22 +1774,29 @@ const styles = StyleSheet.create({
     lineHeight: 52,
   },
   completionSubtitle: {
-    fontSize: 20,
+    fontSize: 18,
     textAlign: "center",
+  },
+  completionMessage: {
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+    paddingHorizontal: 12,
   },
   completionGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     gap: 12,
   },
   completionStatCard: {
-    width: "48%",
+    flex: 1,
+    minWidth: 0,
     borderRadius: 20,
     borderWidth: 1,
-    paddingVertical: 18,
-    paddingHorizontal: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
     alignItems: "center",
-    minHeight: 140,
+    minHeight: 126,
   },
   completionStatValue: {
     fontSize: 46,
@@ -1681,7 +1961,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sharePrimaryBtn: {
-    height: 64,
+    height: 62,
   },
   sharePrimaryBtnText: {
     fontSize: 18,
@@ -1691,6 +1971,12 @@ const styles = StyleSheet.create({
   },
   backHomeBtnText: {
     fontSize: 17,
+  },
+  shareGhostBtn: {
+    height: 48,
+  },
+  shareGhostText: {
+    fontSize: 14,
   },
   fallbackText: {
     fontSize: 16,
@@ -1715,5 +2001,60 @@ const styles = StyleSheet.create({
     width: 8,
     height: 14,
     borderRadius: 2,
+  },
+  pauseOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+    zIndex: 12,
+  },
+  pauseCard: {
+    width: "100%",
+    maxWidth: 360,
+    borderWidth: 1,
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    gap: 14,
+    alignItems: "center",
+  },
+  pauseHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  pauseTitle: {
+    fontSize: 30,
+    lineHeight: 32,
+    textAlign: "center",
+  },
+  pauseSubtitle: {
+    textAlign: "center",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  pauseActions: {
+    width: "100%",
+    gap: 10,
+  },
+  pauseResumeBtn: {
+    height: 56,
+  },
+  pauseFinishBtn: {
+    height: 48,
+  },
+  resumeCountdownBubble: {
+    width: 118,
+    height: 118,
+    borderRadius: 59,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resumeCountdownValue: {
+    fontSize: 66,
+    lineHeight: 70,
+    letterSpacing: -1.6,
   },
 });

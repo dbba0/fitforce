@@ -1,124 +1,148 @@
-import { isLiquidGlassAvailable } from "expo-glass-effect";
-import { Tabs } from "expo-router";
-import { NativeTabs, Icon, Label } from "expo-router/unstable-native-tabs";
-import { BlurView } from "expo-blur";
-import { Platform, StyleSheet, useColorScheme, View } from "react-native";
 import React from "react";
-import { useLanguage } from "@/contexts/LanguageContext";
+import { Platform, StyleSheet, View } from "react-native";
+import { Tabs } from "expo-router";
+import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
-import { Colors } from "@/constants/colors";
-import { Typography } from "@/constants/typography";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { useAppTheme } from "@/hooks";
+import { TranslationKey } from "@/lib/i18n";
 
-function NativeTabLayout() {
-  const { t } = useLanguage();
+type TabName = "index" | "workouts" | "feed" | "profile";
+
+const TAB_CONFIG: Record<
+  TabName,
+  { labelKey: TranslationKey; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap }
+> = {
+  index: { labelKey: "home", icon: "home-outline", activeIcon: "home" },
+  workouts: { labelKey: "workouts", icon: "barbell-outline", activeIcon: "barbell" },
+  feed: { labelKey: "feed", icon: "people-outline", activeIcon: "people" },
+  profile: { labelKey: "profile", icon: "person-outline", activeIcon: "person" },
+};
+
+function FloatingTabIcon({
+  focused,
+  icon,
+  activeIcon,
+}: {
+  focused: boolean;
+  icon: keyof typeof Ionicons.glyphMap;
+  activeIcon: keyof typeof Ionicons.glyphMap;
+}) {
+  const { colors, radius } = useAppTheme();
   return (
-    <NativeTabs>
-      <NativeTabs.Trigger name="index">
-        <Icon sf={{ default: "house", selected: "house.fill" }} />
-        <Label>{t("home")}</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="workouts">
-        <Icon sf={{ default: "figure.run", selected: "figure.run" }} />
-        <Label>{t("workouts")}</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="feed">
-        <Icon sf={{ default: "heart", selected: "heart.fill" }} />
-        <Label>{t("feed")}</Label>
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="profile">
-        <Icon sf={{ default: "person", selected: "person.fill" }} />
-        <Label>{t("profile")}</Label>
-      </NativeTabs.Trigger>
-    </NativeTabs>
+    <View
+      style={[
+        styles.iconWrap,
+        {
+          borderRadius: radius.md,
+          backgroundColor: focused ? `${colors.accent}22` : "transparent",
+          borderColor: focused ? `${colors.accent}50` : "transparent",
+        },
+      ]}
+    >
+      <Ionicons
+        name={focused ? activeIcon : icon}
+        size={20}
+        color={focused ? colors.accent : colors.textMuted}
+      />
+    </View>
   );
 }
 
-function ClassicTabLayout() {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const isWeb = Platform.OS === "web";
-  const isIOS = Platform.OS === "ios";
+export default function TabLayout() {
   const { t } = useLanguage();
-  const theme = isDark ? Colors.dark : Colors.light;
+  const { colors, spacing, radius, typography, isDark } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === "web";
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: theme.accent,
-        tabBarInactiveTintColor: isDark ? "#555" : "#AAA",
+        tabBarShowLabel: true,
+        tabBarHideOnKeyboard: true,
+        tabBarActiveTintColor: colors.accent,
+        tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: {
           position: "absolute",
-          backgroundColor: isIOS ? "transparent" : isDark ? "#0D0D0D" : "#F5F5F5",
-          borderTopWidth: isWeb ? 1 : 0,
-          borderTopColor: isDark ? "#2A2A2A" : "#E5E5E5",
+          left: isWeb ? 16 : spacing[2],
+          right: isWeb ? 16 : spacing[2],
+          bottom: isWeb ? 16 : Math.max(insets.bottom, 8) + 10,
+          height: 68,
+          paddingTop: 8,
+          paddingBottom: 8,
+          paddingHorizontal: 8,
+          borderRadius: radius.xl,
+          borderTopWidth: 1,
+          borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
+          backgroundColor: "transparent",
+          shadowColor: "#000",
+          shadowOpacity: isDark ? 0.34 : 0.14,
+          shadowRadius: 18,
+          shadowOffset: { width: 0, height: 8 },
           elevation: 0,
-          ...(isWeb ? { height: 84 } : {}),
         },
-        tabBarBackground: () =>
-          isIOS ? (
+        tabBarItemStyle: {
+          borderRadius: radius.lg,
+          marginHorizontal: 2,
+          paddingVertical: 2,
+        },
+        tabBarLabelStyle: {
+          fontFamily: typography.family.bodySemiBold,
+          fontSize: 12,
+          lineHeight: 14,
+          marginTop: 2,
+        },
+        tabBarBackground: () => (
+          <View style={[StyleSheet.absoluteFill, { borderRadius: radius.xl, overflow: "hidden" }]}>
             <BlurView
-              intensity={80}
+              intensity={72}
               tint={isDark ? "dark" : "light"}
               style={StyleSheet.absoluteFill}
             />
-          ) : isWeb ? (
             <View
               style={[
                 StyleSheet.absoluteFill,
-                { backgroundColor: isDark ? "#0D0D0D" : "#F5F5F5" },
+                {
+                  backgroundColor: isDark ? "rgba(12,12,14,0.72)" : "rgba(250,250,252,0.8)",
+                },
               ]}
             />
-          ) : null,
-        tabBarLabelStyle: {
-          fontFamily: Typography.body,
-          fontSize: 11,
-        },
+          </View>
+        ),
       }}
     >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: t("home"),
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="home-outline" size={22} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="workouts"
-        options={{
-          title: t("workouts"),
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="barbell-outline" size={22} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="feed"
-        options={{
-          title: t("feed"),
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="people-outline" size={22} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: t("profile"),
-          tabBarIcon: ({ color }) => (
-            <Ionicons name="person-outline" size={22} color={color} />
-          ),
-        }}
-      />
+      {(Object.keys(TAB_CONFIG) as TabName[]).map((name) => {
+        const cfg = TAB_CONFIG[name];
+        return (
+          <Tabs.Screen
+            key={name}
+            name={name}
+            options={{
+              title: t(cfg.labelKey),
+              tabBarIcon: ({ focused }) => (
+                <FloatingTabIcon
+                  focused={focused}
+                  icon={cfg.icon}
+                  activeIcon={cfg.activeIcon}
+                />
+              ),
+            }}
+          />
+        );
+      })}
     </Tabs>
   );
 }
 
-export default function TabLayout() {
-  if (isLiquidGlassAvailable()) {
-    return <NativeTabLayout />;
-  }
-  return <ClassicTabLayout />;
-}
+const styles = StyleSheet.create({
+  iconWrap: {
+    width: 34,
+    height: 34,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+});

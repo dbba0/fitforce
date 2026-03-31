@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWorkout } from "@/contexts/WorkoutContext";
 import { TranslationKey } from "@/lib/i18n";
-import { Card, Chip, SkeletonCard } from "@/components/ui";
+import { Card, Chip, FeedbackToast, SkeletonCard, StateCard } from "@/components/ui";
 import { Colors } from "@/constants/colors";
 import { Typography } from "@/constants/typography";
 import { PROGRAMS, Program } from "@/data/programs";
@@ -79,7 +79,7 @@ function getLastSessionLabel(
 
 export default function WorkoutsScreen() {
   const { t } = useLanguage();
-  const { sessions } = useWorkout();
+  const { sessions, isLoaded } = useWorkout();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -87,6 +87,7 @@ export default function WorkoutsScreen() {
   const [activeTab, setActiveTab] = useState<Tab>("gym");
   const [displayPrograms, setDisplayPrograms] = useState<Program[]>([]);
   const [isProgramsTransitioning, setIsProgramsTransitioning] = useState(true);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const latestSessionByProgram = useMemo(() => {
     const map = new Map<string, string>();
@@ -120,6 +121,12 @@ export default function WorkoutsScreen() {
     return () => clearTimeout(timer);
   }, [visiblePrograms]);
 
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(null), 1800);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
+
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
   const webBottomPadding = Platform.OS === "web" ? 34 : 0;
 
@@ -148,6 +155,7 @@ export default function WorkoutsScreen() {
             accessibilityLabel={t("workoutsSearchAction")}
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setToastMessage(t("workoutsSearchSoonToast"));
             }}
             style={({ pressed }) => [
               styles.searchButton,
@@ -180,11 +188,20 @@ export default function WorkoutsScreen() {
         </Animated.View>
 
         <View style={styles.programsWrap}>
-          {isProgramsTransitioning
+          {!isLoaded || isProgramsTransitioning
             ? Array.from({ length: 3 }).map((_, idx) => (
                 <SkeletonCard key={`workout-skeleton-${idx}`} height={190} style={styles.programSkeleton} />
               ))
-            : displayPrograms.map((program, index) => {
+            : displayPrograms.length === 0 ? (
+              <StateCard
+                title={t("workoutsEmptyTitle")}
+                description={t("workoutsEmptyDescription")}
+                actionLabel={t("workoutsEmptyAction")}
+                onActionPress={() => setActiveTab("gym")}
+                style={styles.workoutStateCard}
+              />
+            ) : (
+              displayPrograms.map((program, index) => {
             const accentColor = getProgramAccentColor(program, theme.accent);
             const lastSessionLabel = getLastSessionLabel(
               latestSessionByProgram.get(program.id),
@@ -248,7 +265,7 @@ export default function WorkoutsScreen() {
                 </Card>
               </Animated.View>
             );
-          })}
+          }))}
         </View>
 
         <Animated.View entering={FadeInDown.delay(360).duration(420)} style={styles.customProgramsSection}>
@@ -293,6 +310,14 @@ export default function WorkoutsScreen() {
       >
         <Ionicons name="add" size={36} color="#fff" />
       </Pressable>
+
+      <FeedbackToast
+        message={toastMessage}
+        tone="info"
+        style={{
+          bottom: Platform.OS === "web" ? 104 : insets.bottom + 64,
+        }}
+      />
     </View>
   );
 }
@@ -340,6 +365,10 @@ const styles = StyleSheet.create({
   programsWrap: {
     paddingHorizontal: 20,
     gap: 14,
+  },
+  workoutStateCard: {
+    borderRadius: 24,
+    marginTop: 6,
   },
   programSkeleton: {
     borderRadius: 30,
