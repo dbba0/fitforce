@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef,
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiRequest } from "@/lib/query-client";
-import { CustomProgram, getCustomPrograms } from "@/utils/customProgramStorage";
+import { CustomProgram, getCustomPrograms, saveCustomPrograms } from "@/utils/customProgramStorage";
 
 export interface UserProfile {
   name: string;
@@ -90,6 +90,10 @@ interface WorkoutContextValue {
   weeklyChallenge: WeeklyChallenge;
   customPrograms: CustomProgram[];
   refreshCustomPrograms: () => Promise<CustomProgram[]>;
+  persistCustomPrograms: (
+    programs: CustomProgram[],
+    meta?: { addedProgramId?: string; reason?: "create" | "update" | "duplicate" | "delete" | "sync" }
+  ) => Promise<CustomProgram[]>;
   playerProgress: PlayerProgress;
   grantXpBatch: (input: { sessionCount?: number; prCount?: number; streakCount?: number }) => Promise<XpRewardSummary>;
   isLoaded: boolean;
@@ -259,6 +263,33 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
       return [];
     }
   }, []);
+
+  const persistCustomPrograms = useCallback(
+    async (
+      programs: CustomProgram[],
+      meta?: { addedProgramId?: string; reason?: "create" | "update" | "duplicate" | "delete" | "sync" }
+    ): Promise<CustomProgram[]> => {
+      await saveCustomPrograms(programs);
+      setCustomPrograms(programs);
+
+      console.log("[Context] Programs after save:", programs.length);
+      if (meta?.addedProgramId) {
+        const addedProgram = programs.find((program) => program.id === meta.addedProgramId);
+        console.log("[Context] Added program:", addedProgram
+          ? {
+              id: addedProgram.id,
+              title: addedProgram.title,
+              mode: addedProgram.mode,
+              days: addedProgram.days.length,
+              estimatedMinutes: addedProgram.estimatedMinutes,
+            }
+          : { id: meta.addedProgramId, found: false });
+      }
+
+      return programs;
+    },
+    []
+  );
 
   useEffect(() => {
     (async () => {
@@ -611,10 +642,11 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     weeklyChallenge,
     customPrograms,
     refreshCustomPrograms,
+    persistCustomPrograms,
     playerProgress,
     grantXpBatch,
     isLoaded,
-  }), [profile, goals, sessions, customizations, totalWorkouts, totalMinutes, totalCalories, totalCardioMinutes, totalCardioCalories, streakDays, weeklyProgress, weeklyCardio, weeklyChallenge, customPrograms, refreshCustomPrograms, playerProgress, grantXpBatch, isLoaded]);
+  }), [profile, goals, sessions, customizations, totalWorkouts, totalMinutes, totalCalories, totalCardioMinutes, totalCardioCalories, streakDays, weeklyProgress, weeklyCardio, weeklyChallenge, customPrograms, refreshCustomPrograms, persistCustomPrograms, playerProgress, grantXpBatch, isLoaded]);
 
   return (
     <WorkoutContext.Provider value={value}>

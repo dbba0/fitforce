@@ -7,5 +7,7 @@ module.exports = {
   mongoUri: process.env.MONGO_URI || 'mongodb://localhost:27017/fitforce',
   jwtSecret: process.env.JWT_SECRET || 'dev_secret',
   clientUrl: process.env.CLIENT_URL || '*',
-  stripeSecretKey: process.env.STRIPE_SECRET_KEY || ''
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY || '',
+  rapidApiKey: process.env.RAPIDAPI_KEY || '',
+  rapidApiHost: process.env.RAPIDAPI_HOST || 'exercisedb.p.rapidapi.com',
 };

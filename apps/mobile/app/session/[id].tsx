@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Alert,
   Dimensions,
+  Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Pressable,
@@ -37,7 +38,8 @@ import { useWorkout } from "@/contexts/WorkoutContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useAppTheme } from "@/hooks";
 import ExerciseMedia from "@/components/ExerciseMedia";
-import { GhostButton, PrimaryButton, SetDots } from "@/components/ui";
+import ExerciseGif from "@/components/ExerciseGif";
+import { Chip, GhostButton, PrimaryButton, SetDots } from "@/components/ui";
 import { AppCard } from "@/ui";
 import { TranslationKey } from "@/lib/i18n";
 import { PROGRAMS } from "@/data/programs";
@@ -48,6 +50,7 @@ import { checkAndStorePr } from "@/utils/prStorage";
 import { getExerciseHistoryMap, saveExercisePerformance, ExerciseLastPerformance } from "@/utils/exerciseHistoryStorage";
 
 type Phase = "active" | "rest" | "done";
+type WorkoutViewMode = "minimal" | "guided";
 type SessionPrHit = {
   exerciseId: string;
   exerciseName: string;
@@ -796,7 +799,7 @@ export default function SessionScreen() {
   const isDark = colorScheme === "dark";
   const theme = isDark ? Colors.dark : Colors.light;
   const { radius } = useAppTheme();
-  const { getCustomization, addSession } = useWorkout();
+  const { getCustomization, addSession, profile } = useWorkout();
 
   const program = PROGRAMS.find((item) => item.id === id);
 
@@ -829,6 +832,8 @@ export default function SessionScreen() {
   const [showSetValidationSuccess, setShowSetValidationSuccess] = useState(false);
   const [exerciseHistoryMap, setExerciseHistoryMap] = useState<Record<string, ExerciseLastPerformance>>({});
   const [hasScrolledExercise, setHasScrolledExercise] = useState(false);
+  const [workoutViewMode, setWorkoutViewMode] = useState<WorkoutViewMode>("guided");
+  const [hasManualViewMode, setHasManualViewMode] = useState(false);
 
   const elapsedRef = useRef(0);
   const activeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -845,6 +850,15 @@ export default function SessionScreen() {
   const nextWorkout = workoutsWithEx[exIndex + 1];
   const nextExercise = nextWorkout?.exercise;
   const totalExercises = workoutsWithEx.length;
+
+  useEffect(() => {
+    if (hasManualViewMode) return;
+    if (!profile?.level || profile.level === "beginner") {
+      setWorkoutViewMode("guided");
+      return;
+    }
+    setWorkoutViewMode("minimal");
+  }, [profile?.level, hasManualViewMode]);
 
   const finalizeSession = useCallback(() => {
     if (!program || completionTriggeredRef.current) return;
@@ -1061,7 +1075,7 @@ export default function SessionScreen() {
 
   const handleSetDone = () => {
     if (isPaused || resumeCountdown !== null) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     doneSetScale.value = withSequence(
       withTiming(0.94, { duration: 90 }),
       withTiming(1.06, { duration: 120 }),
@@ -1107,7 +1121,7 @@ export default function SessionScreen() {
               };
               return next;
             });
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
           }
         })
         .catch(() => {});
@@ -1254,6 +1268,8 @@ export default function SessionScreen() {
   const displayedSet = setIndex + 1;
   const setProgressPct = Math.round((displayedSet / Math.max(1, setProgress)) * 100);
   const primaryMuscle = currentExercise?.muscles?.[0];
+  const secondaryMuscles = currentExercise?.muscles?.slice(1) ?? [];
+  const isGuidedMode = workoutViewMode === "guided";
   const muscleLabel = primaryMuscle ? t(getMuscleLabelKey(primaryMuscle)) : t("fullBody");
   const equipmentLabel = currentExercise
     ? t(getEquipmentLabelKey(currentExercise.equipment))
@@ -1349,6 +1365,48 @@ export default function SessionScreen() {
             <Text style={[styles.exerciseMeta, { color: theme.accent, fontFamily: Typography.labelTech }]}>
               {`${muscleLabel} · ${equipmentLabel}`.toUpperCase()}
             </Text>
+
+            <View style={styles.viewModeRow}>
+              <Text style={[styles.viewModeLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+                {t("sessionViewModeLabel").toUpperCase()}
+              </Text>
+              <View style={[styles.viewModeSwitcher, { borderColor: theme.border, backgroundColor: theme.cardElevated }]}>
+                {(["minimal", "guided"] as WorkoutViewMode[]).map((mode) => {
+                  const selected = workoutViewMode === mode;
+                  return (
+                    <Pressable
+                      key={mode}
+                      onPress={() => {
+                        setHasManualViewMode(true);
+                        setWorkoutViewMode(mode);
+                        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      }}
+                      style={({ pressed }) => [
+                        styles.viewModeOption,
+                        {
+                          backgroundColor: selected ? theme.accent : "transparent",
+                          borderColor: selected ? theme.accent : "transparent",
+                          opacity: pressed ? 0.85 : 1,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.viewModeOptionText,
+                          {
+                            color: selected ? "#FFFFFF" : theme.textSecondary,
+                            fontFamily: selected ? Typography.bodySemiBold : Typography.bodyRegular,
+                          },
+                        ]}
+                      >
+                        {mode === "guided" ? t("sessionViewModeGuided") : t("sessionViewModeMinimal")}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
             <View style={styles.exerciseTitleRow}>
               <Text
                 style={[styles.exerciseTitle, { color: theme.text, fontFamily: Typography.titleStrong }]}
@@ -1443,10 +1501,52 @@ export default function SessionScreen() {
               </Text>
             ) : null}
 
-            {!hasScrolledExercise ? (
-              <Text style={[styles.detailsHint, { color: "#6B7280", fontFamily: Typography.bodyRegular }]}>
-                {t("sessionSeeDetailsHint")}
-              </Text>
+            {isGuidedMode ? (
+              <View style={styles.guidedVisualWrap}>
+                <ExerciseGif
+                  exerciseDbId={currentExercise?.exerciseDbId}
+                  size={176}
+                  style={styles.guidedVisualMedia}
+                  backgroundColor={theme.card}
+                  borderColor={theme.border}
+                  fallback={
+                    <ExerciseMedia
+                      exerciseId={currentExercise?.id}
+                      type="auto"
+                      size={176}
+                      autoPlay={phase === "active"}
+                      loop
+                      isActive={phase === "active"}
+                      muscles={currentExercise?.muscles ?? []}
+                      title={exerciseTranslation?.name ?? t("sessionIllustrationPlaceholder")}
+                      subtitle={exerciseTranslation?.description ?? t("sessionIllustrationPlaceholder")}
+                      theme={theme}
+                      highlightColor={theme.accent}
+                    />
+                  }
+                />
+              </View>
+            ) : null}
+
+            {isGuidedMode && currentExercise?.videoUrl ? (
+              <Pressable
+                onPress={() => {
+                  if (!currentExercise.videoUrl) return;
+                  Linking.openURL(currentExercise.videoUrl).catch((error) => {
+                    console.error("[Session] Failed to open exercise demo URL", error);
+                  });
+                }}
+                style={({ pressed }) => [
+                  styles.demoLink,
+                  { opacity: pressed ? 0.75 : 1 },
+                ]}
+                hitSlop={8}
+              >
+                <Ionicons name="play-circle-outline" size={16} color={theme.accent} />
+                <Text style={[styles.demoLinkText, { color: theme.accent, fontFamily: Typography.bodySemiBold }]}>
+                  {t("exerciseWatchDemo")}
+                </Text>
+              </Pressable>
             ) : null}
 
             {prToast ? (
@@ -1517,6 +1617,12 @@ export default function SessionScreen() {
             scrollEventThrottle={16}
             contentContainerStyle={styles.activeDetailsContent}
           >
+            {isGuidedMode && !hasScrolledExercise ? (
+              <Text style={[styles.detailsHint, { color: "#6B7280", fontFamily: Typography.bodyRegular }]}>
+                {t("sessionSeeDetailsHint")}
+              </Text>
+            ) : null}
+
             <View style={styles.bottomActionsRow}>
               <Pressable
                 onPress={handlePrevious}
@@ -1547,36 +1653,61 @@ export default function SessionScreen() {
               </Pressable>
             </View>
 
-            <AppCard
-              variant="default"
-              style={[
-                styles.exerciseDetailsCard,
-                {
-                  backgroundColor: theme.cardElevated,
-                  borderColor: theme.border,
-                  borderRadius: radius.md,
-                },
-              ]}
-            >
-              {exerciseTranslation?.description ? (
-                <Text style={[styles.exerciseDetailsText, { color: theme.textSecondary, fontFamily: Typography.body }]}>
-                  {exerciseTranslation.description}
-                </Text>
-              ) : null}
-              <ExerciseMedia
-                exerciseId={currentExercise?.id}
-                type="auto"
-                size={190}
-                autoPlay={phase === "active"}
-                loop
-                isActive={phase === "active"}
-                muscles={currentExercise?.muscles ?? []}
-                title={exerciseTranslation?.name ?? t("sessionIllustrationPlaceholder")}
-                subtitle={exerciseTranslation?.description ?? t("sessionIllustrationPlaceholder")}
-                theme={theme}
-                highlightColor={theme.accent}
-              />
-            </AppCard>
+            {isGuidedMode ? (
+              <AppCard
+                variant="default"
+                style={[
+                  styles.exerciseDetailsCard,
+                  {
+                    backgroundColor: theme.cardElevated,
+                    borderColor: theme.border,
+                    borderRadius: radius.md,
+                  },
+                ]}
+              >
+                {exerciseTranslation?.description ? (
+                  <Text style={[styles.exerciseDetailsText, { color: theme.textSecondary, fontFamily: Typography.body }]}>
+                    {exerciseTranslation.description}
+                  </Text>
+                ) : null}
+
+                {primaryMuscle ? (
+                  <View style={styles.detailSection}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}>
+                      {t("exerciseMediaPrimaryMuscles").toUpperCase()}
+                    </Text>
+                    <View style={styles.detailChipsRow}>
+                      <Chip
+                        label={t(getMuscleLabelKey(primaryMuscle))}
+                        selected
+                        selectedColor={theme.accent}
+                        style={styles.detailChip}
+                        textStyle={styles.detailChipText}
+                      />
+                    </View>
+                  </View>
+                ) : null}
+
+                {secondaryMuscles.length > 0 ? (
+                  <View style={styles.detailSection}>
+                    <Text style={[styles.detailLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}>
+                      {t("exerciseMediaSecondaryMuscles").toUpperCase()}
+                    </Text>
+                    <View style={styles.detailChipsRow}>
+                      {secondaryMuscles.map((muscle) => (
+                        <Chip
+                          key={`secondary-${muscle}`}
+                          label={t(getMuscleLabelKey(muscle))}
+                          selected={false}
+                          style={[styles.detailChip, { borderColor: theme.border, backgroundColor: theme.card }]}
+                          textStyle={[styles.detailChipText, { color: theme.textSecondary }]}
+                        />
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+              </AppCard>
+            ) : null}
 
             {nextExerciseTranslation?.name ? (
               <AppCard
@@ -1737,8 +1868,8 @@ const styles = StyleSheet.create({
   },
   activeAboveFold: {
     paddingHorizontal: 20,
-    paddingTop: 8,
-    gap: 10,
+    paddingTop: 6,
+    gap: 12,
   },
   activeScreen: {
     flex: 1,
@@ -1748,19 +1879,49 @@ const styles = StyleSheet.create({
   },
   activeDetailsContent: {
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 10,
     paddingBottom: 100,
-    gap: 12,
+    gap: 14,
   },
   exerciseMeta: {
     fontSize: 12,
     letterSpacing: 1.2,
     textTransform: "uppercase",
   },
+  viewModeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  viewModeLabel: {
+    fontSize: 10,
+    letterSpacing: 1.1,
+  },
+  viewModeSwitcher: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 999,
+    padding: 3,
+    gap: 4,
+  },
+  viewModeOption: {
+    borderRadius: 999,
+    borderWidth: 1,
+    minHeight: 30,
+    minWidth: 92,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewModeOptionText: {
+    fontSize: 12,
+  },
   exerciseTitle: {
-    fontSize: 36,
-    lineHeight: 40,
-    letterSpacing: -0.8,
+    fontSize: 30,
+    lineHeight: 33,
+    letterSpacing: -0.5,
   },
   exerciseTitleRow: {
     flexDirection: "row",
@@ -1775,14 +1936,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  demoLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    marginTop: 2,
+  },
+  guidedVisualWrap: {
+    marginTop: 2,
+  },
+  guidedVisualMedia: {
+    marginTop: 0,
+    minHeight: 166,
+  },
+  demoLinkText: {
+    fontSize: 13,
+  },
   detailsHint: {
     fontSize: 12,
     lineHeight: 16,
   },
   immersiveTimerCard: {
     gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingHorizontal: 15,
+    paddingVertical: 15,
   },
   immersiveTimerTopRow: {
     flexDirection: "row",
@@ -1799,9 +1977,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   immersiveTimerValue: {
-    fontSize: 58,
-    lineHeight: 60,
-    letterSpacing: -1.2,
+    fontSize: 52,
+    lineHeight: 54,
+    letterSpacing: -1,
   },
   vsLastText: {
     fontSize: 13,
@@ -1901,12 +2079,12 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
   },
   doneSetBtn: {
-    marginTop: 6,
+    marginTop: 10,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    height: 82,
+    height: 76,
     borderRadius: 40,
     shadowColor: "#F55F2B",
     shadowOpacity: 0.35,
@@ -1916,7 +2094,7 @@ const styles = StyleSheet.create({
   },
   doneSetBtnText: {
     color: "#fff",
-    fontSize: 20,
+    fontSize: 19,
   },
   setSuccessSlot: {
     minHeight: 34,
@@ -1950,7 +2128,26 @@ const styles = StyleSheet.create({
   exerciseDetailsCard: {
     paddingHorizontal: 14,
     paddingVertical: 12,
-    gap: 10,
+    gap: 12,
+  },
+  detailSection: {
+    gap: 8,
+  },
+  detailLabel: {
+    fontSize: 10,
+    letterSpacing: 1.1,
+  },
+  detailChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  detailChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  detailChipText: {
+    fontSize: 11,
   },
   exerciseDetailsText: {
     fontSize: 14,

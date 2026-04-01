@@ -26,6 +26,7 @@ const billingRoutes = require('./routes/billingRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
 const socialRoutes = require('./routes/socialRoutes');
 const privacyRoutes = require('./routes/privacyRoutes');
+const exercisesRoutes = require('./routes/exercises');
 
 const app = express();
 
@@ -76,6 +77,7 @@ app.use('/api/nutrition', nutritionRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api', socialRoutes);
 app.use('/api/privacy', privacyRoutes);
+app.use('/api/exercises', exercisesRoutes);
 
 app.use(errorHandler);
 

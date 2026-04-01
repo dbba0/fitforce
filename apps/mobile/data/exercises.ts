@@ -12,8 +12,10 @@ export interface ExerciseTranslation {
 
 export interface Exercise {
   id: string;
+  exerciseDbId?: string;
   youtubeId: string;
   videoUrl?: string;
+  gifUrl?: string;
   imageColor: string;
   equipment: Equipment;
   muscles: MuscleGroup[];
@@ -34,6 +36,7 @@ export interface Exercise {
 const EXERCISES_RAW: Exercise[] = [
   {
     id: "pushup",
+    exerciseDbId: "0557",
     youtubeId: "IODxDxX7oi4",
     imageColor: "#FF6B2C",
     equipment: "bodyweight",
@@ -166,6 +169,7 @@ const EXERCISES_RAW: Exercise[] = [
   },
   {
     id: "squat",
+    exerciseDbId: "0723",
     youtubeId: "ultWZbUMPL8",
     imageColor: "#4CAF7D",
     equipment: "bodyweight",
@@ -298,6 +302,7 @@ const EXERCISES_RAW: Exercise[] = [
   },
   {
     id: "plank",
+    exerciseDbId: "0430",
     youtubeId: "ASdvN_XEl_c",
     imageColor: "#6C63FF",
     equipment: "bodyweight",
@@ -562,6 +567,7 @@ const EXERCISES_RAW: Exercise[] = [
   },
   {
     id: "pullup",
+    exerciseDbId: "0601",
     youtubeId: "eGo4IYlbE5g",
     imageColor: "#2196F3",
     equipment: "pullupBar",
@@ -694,6 +700,7 @@ const EXERCISES_RAW: Exercise[] = [
   },
   {
     id: "lunge",
+    exerciseDbId: "0332",
     youtubeId: "QOVaHwm-Q6U",
     imageColor: "#E91E8C",
     equipment: "bodyweight",
@@ -958,6 +965,7 @@ const EXERCISES_RAW: Exercise[] = [
   },
   {
     id: "deadlift",
+    exerciseDbId: "0202",
     youtubeId: "op9kVnSso6Q",
     imageColor: "#FF4D4D",
     equipment: "barbell",
@@ -1222,6 +1230,7 @@ const EXERCISES_RAW: Exercise[] = [
   },
   {
     id: "shoulder_press",
+    exerciseDbId: "0694",
     youtubeId: "qEwKCR5JCog",
     imageColor: "#FF9800",
     equipment: "dumbbell",
@@ -1354,6 +1363,7 @@ const EXERCISES_RAW: Exercise[] = [
   },
   {
     id: "bench_press",
+    exerciseDbId: "0019",
     youtubeId: "rT7DgCr-3pg",
     imageColor: "#2196F3",
     equipment: "barbell",

@@ -18,6 +18,7 @@ import { Colors } from "@/constants/colors";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWorkout } from "@/contexts/WorkoutContext";
 import { EXERCISES, MuscleGroup } from "@/data/exercises";
+import { fetchExercisesFromApi, RemoteExercise } from "@/services";
 import {
   BottomSheet,
   Card,
@@ -33,7 +34,6 @@ import {
   CustomExerciseItem,
   CustomProgram,
   CustomProgramMode,
-  saveCustomPrograms,
 } from "@/utils/customProgramStorage";
 import { TranslationKey } from "@/lib/i18n";
 
@@ -51,6 +51,17 @@ type EditableExerciseState = {
   restSeconds: string;
   weight: string;
 } | null;
+
+type CatalogExercise = {
+  id: string;
+  name: string;
+  muscles: MuscleGroup[];
+  equipment: string;
+  isCardio?: boolean;
+  target?: string;
+  bodyPart?: string;
+  gifUrl?: string;
+};
 
 const UNIT_KEY = "@fitforce_builder_units";
 const LBS_PER_KG = 2.20462;
@@ -84,6 +95,38 @@ function getExerciseName(exerciseId: string, language: string): string {
   if (!exercise) return exerciseId;
   const tr = exercise.translations[language as keyof typeof exercise.translations] ?? exercise.translations.en;
   return tr.name;
+}
+
+function mapTextToMuscleGroup(value: string): MuscleGroup[] {
+  const text = value.toLowerCase();
+  const groups = new Set<MuscleGroup>();
+
+  if (/(chest|pectoral)/.test(text)) groups.add("chest");
+  if (/(back|lat|trap|spine)/.test(text)) groups.add("back");
+  if (/(shoulder|delt)/.test(text)) groups.add("shoulders");
+  if (/(arm|biceps|triceps|forearm)/.test(text)) groups.add("arms");
+  if (/(leg|quad|hamstring|glute|calf)/.test(text)) groups.add("legs");
+  if (/(core|abs|waist)/.test(text)) groups.add("core");
+
+  if (!groups.size) groups.add("core");
+  return Array.from(groups);
+}
+
+function toCatalogExercise(item: RemoteExercise): CatalogExercise {
+  const source = `${item.target} ${item.bodyPart} ${item.name}`;
+  const muscles = mapTextToMuscleGroup(source);
+  const isCardio = /(cardio|conditioning|plyometric)/i.test(source);
+
+  return {
+    id: item.id,
+    name: item.name,
+    muscles,
+    equipment: "bodyweight",
+    isCardio,
+    target: item.target,
+    bodyPart: item.bodyPart,
+    gifUrl: item.gifUrl,
+  };
 }
 
 function shouldSuggestWeight(equipment: string): boolean {
@@ -229,7 +272,7 @@ function SelectPill({
 
 export default function BuilderScreen() {
   const { t, language } = useLanguage();
-  const { profile, customPrograms, refreshCustomPrograms } = useWorkout();
+  const { profile, customPrograms, refreshCustomPrograms, persistCustomPrograms } = useWorkout();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -245,6 +288,7 @@ export default function BuilderScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [unitSystem, setUnitSystem] = useState<UnitSystem>("kg");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [apiCatalog, setApiCatalog] = useState<CatalogExercise[]>([]);
 
   const [activeDayId, setActiveDayId] = useState<string>(draft.days[0]?.id || "");
   const [exerciseQuery, setExerciseQuery] = useState("");
@@ -271,6 +315,47 @@ export default function BuilderScreen() {
     }
   }, [draft.days, activeDayId]);
 
+  useEffect(() => {
+    let mounted = true;
+
+    fetchExercisesFromApi()
+      .then((items) => {
+        if (!mounted || items.length === 0) return;
+        setApiCatalog(items.map(toCatalogExercise));
+      })
+      .catch((error) => {
+        console.error("[Builder] Failed to load exercises from API", error);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const staticCatalog = useMemo<CatalogExercise[]>(() => {
+    return EXERCISES.map((exercise) => {
+      const translation =
+        exercise.translations[language as keyof typeof exercise.translations] ?? exercise.translations.en;
+      return {
+        id: exercise.id,
+        name: translation.name,
+        muscles: exercise.muscles,
+        equipment: exercise.equipment,
+        isCardio: exercise.isCardio,
+        gifUrl: exercise.gifUrl,
+      };
+    });
+  }, [language]);
+
+  const exerciseCatalog = useMemo<CatalogExercise[]>(
+    () => (apiCatalog.length > 0 ? apiCatalog : staticCatalog),
+    [apiCatalog, staticCatalog]
+  );
+
+  const exerciseCatalogById = useMemo(() => {
+    return new Map(exerciseCatalog.map((exercise) => [exercise.id, exercise]));
+  }, [exerciseCatalog]);
+
   const activeDay = useMemo(
     () => draft.days.find((item) => item.id === activeDayId) ?? draft.days[0],
     [draft.days, activeDayId]
@@ -291,7 +376,7 @@ export default function BuilderScreen() {
   );
 
   const libraryExercises = useMemo(() => {
-    const byMode = EXERCISES.filter((exercise) =>
+    const byMode = exerciseCatalog.filter((exercise) =>
       mode === "cardio" ? !!exercise.isCardio : !exercise.isCardio
     );
 
@@ -304,22 +389,26 @@ export default function BuilderScreen() {
     const byQuery = !q
       ? byMuscle
       : byMuscle.filter((exercise) => {
-          const name = getExerciseName(exercise.id, language).toLowerCase();
+          const name = exercise.name.toLowerCase();
           return name.includes(q) || exercise.muscles.join(" ").includes(q);
         });
 
-    return byQuery.filter((exercise) => !addedExerciseIds.has(exercise.id));
-  }, [mode, muscleFilter, exerciseQuery, language, addedExerciseIds]);
+    return byQuery
+      .filter((exercise) => !addedExerciseIds.has(exercise.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [mode, muscleFilter, exerciseQuery, addedExerciseIds, exerciseCatalog]);
 
   const addedExercises = useMemo(() => {
     const dayExercises = activeDay?.exercises || [];
     return dayExercises
       .map((exercise) => ({
         ...exercise,
-        name: getExerciseName(exercise.exerciseId, language),
+        name:
+          exerciseCatalogById.get(exercise.exerciseId)?.name ??
+          getExerciseName(exercise.exerciseId, language),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [activeDay?.exercises, language]);
+  }, [activeDay?.exercises, exerciseCatalogById, language]);
 
   const modeTabs: { key: CustomProgramMode; label: string }[] = [
     { key: "home", label: t("builderTypeHome") },
@@ -407,7 +496,7 @@ export default function BuilderScreen() {
   const addExerciseToActiveDay = (exerciseId: string) => {
     if (!activeDay) return;
 
-    const exercise = EXERCISES.find((item) => item.id === exerciseId);
+    const exercise = exerciseCatalogById.get(exerciseId);
     const preset = OBJECTIVE_PRESETS[objective] || OBJECTIVE_PRESETS.recomposition;
     const level = draft.difficulty || profile?.level || "beginner";
     const levelMult = LEVEL_MULTIPLIER[level] ?? 1;
@@ -539,10 +628,14 @@ export default function BuilderScreen() {
       : [programData, ...programs];
 
     try {
-      await saveCustomPrograms(updated);
-      const result = await refreshCustomPrograms();
+      await persistCustomPrograms(updated, {
+        addedProgramId: editingId ? undefined : programData.id,
+        reason: editingId ? "update" : "create",
+      });
+      const refreshed = await refreshCustomPrograms();
+      const result = refreshed.length > 0 ? refreshed : updated;
       console.log("[Builder] Save result:", result);
-      setPrograms(result.length > 0 ? result : updated);
+      setPrograms(result);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(t("builder"), editingId ? t("builderAlertUpdated") : t("builderAlertSaved"));
       resetDraft();
@@ -578,17 +671,20 @@ export default function BuilderScreen() {
     };
 
     const updated = [copy, ...programs];
-    await saveCustomPrograms(updated);
-    await refreshCustomPrograms();
-    setPrograms(updated);
+    await persistCustomPrograms(updated, {
+      addedProgramId: copy.id,
+      reason: "duplicate",
+    });
+    const refreshed = await refreshCustomPrograms();
+    setPrograms(refreshed.length > 0 ? refreshed : updated);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const deleteProgram = async (id: string) => {
     const updated = programs.filter((item) => item.id !== id);
-    await saveCustomPrograms(updated);
-    await refreshCustomPrograms();
-    setPrograms(updated);
+    await persistCustomPrograms(updated, { reason: "delete" });
+    const refreshed = await refreshCustomPrograms();
+    setPrograms(refreshed.length > 0 ? refreshed : updated);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
@@ -954,10 +1050,12 @@ export default function BuilderScreen() {
                     <Card key={exercise.id} style={[styles.libraryCard, { borderLeftColor: `${theme.accent}55` }]}> 
                       <View style={styles.exerciseMain}>
                         <Text style={[styles.exerciseName, { color: theme.text, fontFamily: "Syne_700Bold" }]}> 
-                          {getExerciseName(exercise.id, language)}
+                          {exercise.name}
                         </Text>
                         <Text style={[styles.exerciseMeta, { color: theme.textMuted, fontFamily: "DMSans_500Medium" }]}> 
-                          {`${exercise.muscles.map((muscle) => t(getMuscleLabelKey(muscle))).join(" · ")} · ${t(exercise.equipment as TranslationKey)}`}
+                          {`${exercise.muscles.map((muscle) => t(getMuscleLabelKey(muscle))).join(" · ")} · ${t(
+                            exercise.equipment as TranslationKey
+                          )}`}
                         </Text>
                       </View>
 
