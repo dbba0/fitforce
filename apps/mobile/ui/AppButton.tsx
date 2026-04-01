@@ -73,7 +73,7 @@ export function AppButton({
         style={[
           styles.base,
           {
-            height: isGhost ? 46 : 52,
+            height: isGhost ? 46 : 54,
             borderRadius: radius.pill,
             backgroundColor: isGhost ? "transparent" : colors.accent,
             borderWidth: isGhost ? 1 : 0,
@@ -100,7 +100,7 @@ export function AppButton({
                 styles.label,
                 {
                   color: isGhost ? colors.textSecondary : "#FFFFFF",
-                  fontFamily: isGhost ? typography.family.bodySemiBold : typography.family.titleStrong,
+                  fontFamily: isGhost ? typography.family.bodySemiBold : typography.family.bodyBold,
                 },
                 textStyle,
               ]}
@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   label: {
-    fontSize: 16,
-    letterSpacing: 0.25,
+    fontSize: 17,
+    letterSpacing: 0.1,
   },
 });

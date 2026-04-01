@@ -162,6 +162,7 @@ export function HeroWorkoutCard({
         haptic="medium"
         onPress={resolvedPrimaryAction}
         style={styles.primaryBtn}
+        textStyle={styles.primaryBtnText}
       />
       {!displayEmptyState && secondaryCtaLabel ? (
         <AppButton label={secondaryCtaLabel} variant="ghost" onPress={onSecondaryCtaPress} />
@@ -219,7 +220,19 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   primaryBtn: {
-    marginTop: 4,
+    marginTop: 6,
+    height: 60,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.24)",
+    shadowColor: "#F55F2B",
+    shadowOpacity: 0.34,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+  primaryBtnText: {
+    fontSize: 19,
+    letterSpacing: 0,
   },
 });
 

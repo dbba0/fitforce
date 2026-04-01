@@ -1,6 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { Badge, Card, SectionLabel } from "@/components/ui";
+import { Card, SectionLabel } from "@/components/ui";
 import { useAppTheme } from "@/hooks";
 
 interface ProfileLevelJourneyCardProps {
@@ -29,7 +29,11 @@ export function ProfileLevelJourneyCard({
         <Text style={[styles.level, { color: colors.text, fontFamily: typography.family.titleStrong }]}>
           {levelName}
         </Text>
-        <Badge label={progressLabel} variant="mint" />
+        <View style={[styles.levelBadge, { borderColor: `${colors.accent}6B`, backgroundColor: "transparent" }]}>
+          <Text style={[styles.levelBadgeText, { color: colors.accent, fontFamily: typography.family.labelTech }]}>
+            {progressLabel}
+          </Text>
+        </View>
       </View>
 
       <Text style={[styles.subtitle, { color: colors.textSecondary, fontFamily: typography.family.bodyRegular }]}>
@@ -77,8 +81,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  levelBadge: {
+    minHeight: 24,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  levelBadgeText: {
+    fontSize: 10,
+    letterSpacing: 0.7,
+    textTransform: "uppercase",
+  },
   track: {
-    height: 8,
+    height: 10,
     borderRadius: 999,
     overflow: "hidden",
   },

@@ -134,10 +134,10 @@ export default function WorkoutsScreen() {
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <ScrollView
         style={styles.container}
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 8,
+          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
           paddingBottom: Platform.OS === "web" ? webBottomPadding + 170 : insets.bottom + 170,
         }}
       >
@@ -238,10 +238,16 @@ export default function WorkoutsScreen() {
                     </View>
                   </View>
 
-                  <Text style={[styles.programMeta, { color: theme.textSecondary, fontFamily: Typography.body }]}>
-                    {program.totalWeeks} {t("weeks")} · {program.sessionsPerWeek}x{t("workoutsPerWeekSuffix")} ·{" "}
-                    {program.type === "home" ? t("workoutsTabHome") : t("workoutsTabGym")}
-                  </Text>
+                  <View style={styles.programMetaRow}>
+                    <Ionicons name="calendar-outline" size={13} color={theme.textMuted} />
+                    <Text
+                      style={[styles.programMeta, { color: theme.textSecondary, fontFamily: Typography.body }]}
+                      numberOfLines={1}
+                    >
+                      {program.totalWeeks} {t("weeks")} · {program.sessionsPerWeek}x{t("workoutsPerWeekSuffix")} ·{" "}
+                      {program.type === "home" ? t("workoutsTabHome") : t("workoutsTabGym")}
+                    </Text>
+                  </View>
 
                   <View style={styles.programStats}>
                     <View style={styles.statItem}>
@@ -257,9 +263,15 @@ export default function WorkoutsScreen() {
                       </Text>
                     </View>
                     {lastSessionLabel ? (
-                      <Text style={[styles.lastSessionText, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}>
-                        {t("workoutsLastSessionPrefix")} {lastSessionLabel}
-                      </Text>
+                      <View style={styles.statItem}>
+                        <Ionicons name="refresh-outline" size={14} color={theme.textMuted} />
+                        <Text
+                          style={[styles.lastSessionText, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}
+                          numberOfLines={1}
+                        >
+                          {t("workoutsLastSessionPrefix")} {lastSessionLabel}
+                        </Text>
+                      </View>
                     ) : null}
                   </View>
                 </Card>
@@ -335,9 +347,9 @@ const styles = StyleSheet.create({
   title: {
     flexShrink: 1,
     marginRight: 12,
-    fontSize: 40,
+    fontSize: 38,
     letterSpacing: -0.8,
-    lineHeight: 42,
+    lineHeight: 40,
   },
   searchButton: {
     width: 58,
@@ -386,8 +398,14 @@ const styles = StyleSheet.create({
   },
   programTitle: {
     flex: 1,
-    fontSize: 20,
-    lineHeight: 22,
+    fontSize: 24,
+    lineHeight: 26,
+  },
+  programMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 10,
   },
   levelBadge: {
     paddingHorizontal: 14,
@@ -399,26 +417,30 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   programMeta: {
+    flex: 1,
     fontSize: 13,
-    marginBottom: 10,
   },
   programStats: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     rowGap: 8,
-    columnGap: 18,
+    columnGap: 12,
+    minWidth: 0,
   },
   statItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
+    minWidth: 0,
+    flexShrink: 1,
   },
   statText: {
-    fontSize: 16,
+    fontSize: 14,
   },
   lastSessionText: {
-    fontSize: 16,
+    fontSize: 14,
+    flexShrink: 1,
   },
   customProgramsSection: {
     marginTop: 28,

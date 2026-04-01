@@ -217,10 +217,10 @@ export default function HomeScreen() {
     return (
       <ScrollView
         style={[styles.container, { backgroundColor: colors.background }]}
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + spacing[2],
+          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
           paddingBottom: (Platform.OS === "web" ? 34 : insets.bottom) + 100,
           paddingHorizontal: layout.screenPadding,
           gap: spacing[2],
@@ -241,11 +241,11 @@ export default function HomeScreen() {
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: colors.background }]}
-      contentInsetAdjustmentBehavior="automatic"
+      contentInsetAdjustmentBehavior="never"
       showsVerticalScrollIndicator={false}
       bounces
       contentContainerStyle={{
-        paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + spacing[2],
+        paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
         paddingBottom: (Platform.OS === "web" ? 34 : insets.bottom) + 100,
         paddingHorizontal: layout.screenPadding,
         gap: spacing[2],

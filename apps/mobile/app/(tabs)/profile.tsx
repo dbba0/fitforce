@@ -120,8 +120,8 @@ function StatTile({
       color={valueColor}
       variant="metric"
       style={styles.statCard}
-      valueStyle={{ color: valueColor }}
-      labelStyle={{ color: textMuted }}
+      valueStyle={{ color: valueColor, fontSize: 36, lineHeight: 38, letterSpacing: -0.8 }}
+      labelStyle={{ color: textMuted, fontSize: 12, letterSpacing: 0.9 }}
     />
   );
 }
@@ -411,10 +411,10 @@ export default function ProfileScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 8,
+          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
           paddingBottom: Platform.OS === "web" ? 118 : insets.bottom + 96,
           paddingHorizontal: layout.screenPadding,
         }}
@@ -655,8 +655,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   headerTitle: {
-    fontSize: 42,
-    lineHeight: 44,
+    fontSize: 38,
+    lineHeight: 40,
     letterSpacing: -1,
   },
   profileSkeletonCard: {

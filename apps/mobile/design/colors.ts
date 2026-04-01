@@ -58,7 +58,7 @@ export const semanticColors: { dark: AppColors; light: AppColors } = {
     cardElevated: colorPalette.neutral[300],
     border: colorPalette.neutral[400],
     text: colorPalette.neutral[900],
-    textSecondary: colorPalette.neutral[600],
+    textSecondary: "#A1A1AA",
     textMuted: colorPalette.neutral[500],
     accent: colorPalette.ember[500],
     accentDark: colorPalette.ember[700],

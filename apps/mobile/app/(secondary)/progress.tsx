@@ -327,10 +327,10 @@ export default function ProgressScreen() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + spacing[1],
+          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
           paddingBottom: Platform.OS === "web" ? 104 : insets.bottom + 84,
           paddingHorizontal: layout.screenPadding,
           gap: spacing[2],
