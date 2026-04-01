@@ -1,13 +1,12 @@
 import React, { useState } from "react";
 import {
   Dimensions,
-  Image,
   Linking,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
   useColorScheme,
 } from "react-native";
@@ -16,14 +15,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
-import { WebView } from "react-native-webview";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getExerciseById } from "@/data/exercises";
 import { Colors } from "@/constants/colors";
 import ExerciseMedia from "@/components/ExerciseMedia";
-import { GhostButton, PillTabs, PrimaryButton } from "@/components/ui";
+import { PillTabs, PrimaryButton } from "@/components/ui";
 
-type DetailTab = "video" | "muscle" | "tutorial";
+type DetailTab = "muscle" | "tutorial";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const MEDIA_HEIGHT = Math.max(220, Math.round(SCREEN_WIDTH * 0.62));
@@ -53,9 +51,6 @@ export default function ExerciseDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const [activeTab, setActiveTab] = useState<DetailTab>("muscle");
-  const [videoError, setVideoError] = useState(false);
-  const [useInlineVideo, setUseInlineVideo] = useState(Platform.OS !== "ios");
-
   const exercise = getExerciseById(id ?? "");
   const figureTheme = {
     card: theme.card,
@@ -79,50 +74,11 @@ export default function ExerciseDetailScreen() {
   }
 
   const exT = exercise.translations[language as keyof typeof exercise.translations] ?? exercise.translations.en;
+  const videoUrl = exercise.videoUrl;
 
   const instructionText = exT.steps.slice(0, 2).join(" ");
   const tutorialBullets = [...exT.steps.slice(0, 2), ...exT.tips.slice(0, 2)];
-  const youtubeUrl = `https://www.youtube.com/watch?v=${exercise.youtubeId}`;
-  const youtubeThumb = `https://img.youtube.com/vi/${exercise.youtubeId}/hqdefault.jpg`;
-
-  const youtubeHtml = `
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #000; overflow: hidden; }
-.video-container {
-  position: relative;
-  width: 100%;
-  padding-bottom: 56.25%;
-  height: 0;
-}
-.video-container iframe {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  border: none;
-}
-</style>
-</head>
-<body>
-<div class="video-container">
-<iframe
-  src="https://www.youtube.com/embed/${exercise.youtubeId}?autoplay=0&rel=0&showinfo=0&modestbranding=1&playsinline=1"
-  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-  allowfullscreen
-></iframe>
-</div>
-</body>
-</html>
-`;
-
   const detailTabs: { key: DetailTab; label: string }[] = [
-    { key: "video", label: "Video" },
     { key: "muscle", label: "Muscle" },
     { key: "tutorial", label: "Tutoriel" },
   ];
@@ -147,59 +103,6 @@ body { background: #000; overflow: hidden; }
           </View>
 
           <View style={styles.mediaCard}>
-            {activeTab === "video" && useInlineVideo && !videoError ? (
-              Platform.OS === "web" ? (
-                <iframe
-                  src={`https://www.youtube.com/embed/${exercise.youtubeId}?rel=0&modestbranding=1`}
-                  style={{ width: "100%", height: MEDIA_HEIGHT, border: "none", borderRadius: 18 } as any}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              ) : (
-                <WebView
-                  source={{ html: youtubeHtml }}
-                  style={styles.webview}
-                  allowsInlineMediaPlayback
-                  mediaPlaybackRequiresUserAction={false}
-                  onError={() => setVideoError(true)}
-                  scrollEnabled={false}
-                  bounces={false}
-                  javaScriptEnabled
-                  domStorageEnabled
-                />
-              )
-            ) : null}
-
-            {activeTab === "video" && (!useInlineVideo || videoError) ? (
-              <View style={styles.videoFallback}>
-                <Image source={{ uri: youtubeThumb }} style={styles.videoThumb} resizeMode="cover" />
-                <View style={styles.videoOverlay}>
-                  <Text style={[styles.videoFallbackTitle, { fontFamily: "Syne_700Bold" }]}>Video</Text>
-                  <Text style={[styles.videoFallbackText, { fontFamily: "DMSans_400Regular" }]}>Lecture integree indisponible.</Text>
-                  <View style={styles.videoActions}>
-                    <PrimaryButton
-                      label="Regarder sur YouTube"
-                      icon="logo-youtube"
-                      onPress={() => Linking.openURL(youtubeUrl)}
-                      style={styles.videoActionBtn}
-                      textStyle={styles.videoActionText}
-                    />
-                    {!useInlineVideo && (
-                      <GhostButton
-                        label="Lire ici"
-                        onPress={() => {
-                          setVideoError(false);
-                          setUseInlineVideo(true);
-                        }}
-                        style={styles.videoInlineBtn}
-                        textStyle={styles.videoInlineText}
-                      />
-                    )}
-                  </View>
-                </View>
-              </View>
-            ) : null}
-
             {activeTab === "muscle" ? (
               <View style={styles.visualWrap}>
                 <ExerciseMedia
@@ -218,7 +121,7 @@ body { background: #000; overflow: hidden; }
               </View>
             ) : null}
 
-            {activeTab === "tutorial" || videoError ? (
+            {activeTab === "tutorial" ? (
               <View style={styles.tutorialCard}>
                 {tutorialBullets.map((line, idx) => (
                   <View key={`${line}-${idx}`} style={styles.tutorialRow}>
@@ -239,6 +142,19 @@ body { background: #000; overflow: hidden; }
             }}
             style={styles.segmented}
           />
+
+          {videoUrl ? (
+            <TouchableOpacity
+              onPress={() => Linking.openURL(videoUrl)}
+              activeOpacity={0.78}
+              style={styles.demoLink}
+            >
+              <Ionicons name="play-circle-outline" size={16} color={theme.accent} />
+              <Text style={[styles.demoLinkText, { color: theme.accent, fontFamily: "DMSans_600SemiBold" }]}>
+                {t("exerciseWatchDemo")}
+              </Text>
+            </TouchableOpacity>
+          ) : null}
 
           <Animated.View entering={FadeInDown.duration(350).delay(80)} style={styles.durationRow}>
             <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Syne_800ExtraBold" }]}>DUREE (SECONDES)</Text>
@@ -336,34 +252,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginBottom: 14,
   },
-  videoFallback: {
-    minHeight: MEDIA_HEIGHT,
-    position: "relative",
-    backgroundColor: "#0B0D12",
-  },
-  videoThumb: {
-    width: "100%",
-    height: MEDIA_HEIGHT,
-  },
-  videoOverlay: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    padding: 16,
-    backgroundColor: "rgba(0,0,0,0.55)",
-  },
-  videoFallbackTitle: { color: "#FFFFFF", fontSize: 18, marginBottom: 4 },
-  videoFallbackText: { color: "#E2E8F0", fontSize: 12, marginBottom: 10 },
-  videoActions: { gap: 10 },
-  videoActionBtn: { width: "100%" },
-  videoActionText: { fontSize: 16 },
-  videoInlineBtn: { width: "100%" },
-  videoInlineText: { color: "#E2E8F0", fontSize: 14 },
-  webview: {
-    height: MEDIA_HEIGHT,
-    backgroundColor: "#000",
-  },
   visualWrap: {
     minHeight: MEDIA_HEIGHT,
     justifyContent: "center",
@@ -411,6 +299,16 @@ const styles = StyleSheet.create({
 
   segmented: {
     marginBottom: 18,
+  },
+  demoLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 16,
+    paddingHorizontal: 2,
+  },
+  demoLinkText: {
+    fontSize: 14,
   },
 
   durationRow: {

@@ -528,18 +528,26 @@ export default function BuilderScreen() {
       })),
     };
 
+    const programData: CustomProgram = editingId
+      ? next
+      : { ...next, id: createId("cp"), createdAt: now };
+
+    console.log("[Builder] Saving program:", JSON.stringify(programData));
+
     const updated = editingId
-      ? programs.map((item) => (item.id === editingId ? next : item))
-      : [{ ...next, id: createId("cp"), createdAt: now }, ...programs];
+      ? programs.map((item) => (item.id === editingId ? programData : item))
+      : [programData, ...programs];
 
     try {
       await saveCustomPrograms(updated);
-      await refreshCustomPrograms();
-      setPrograms(updated);
+      const result = await refreshCustomPrograms();
+      console.log("[Builder] Save result:", result);
+      setPrograms(result.length > 0 ? result : updated);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert(t("builder"), editingId ? t("builderAlertUpdated") : t("builderAlertSaved"));
       resetDraft();
     } catch (error) {
+      console.error("[Builder] Save error:", error);
       console.error("[Builder] Failed to save custom program", {
         error,
         editingId,

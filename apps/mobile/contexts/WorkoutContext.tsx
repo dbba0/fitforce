@@ -89,7 +89,7 @@ interface WorkoutContextValue {
   weeklyCardio: number[];
   weeklyChallenge: WeeklyChallenge;
   customPrograms: CustomProgram[];
-  refreshCustomPrograms: () => Promise<void>;
+  refreshCustomPrograms: () => Promise<CustomProgram[]>;
   playerProgress: PlayerProgress;
   grantXpBatch: (input: { sessionCount?: number; prCount?: number; streakCount?: number }) => Promise<XpRewardSummary>;
   isLoaded: boolean;
@@ -247,13 +247,16 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   const [isLoaded, setIsLoaded] = useState(false);
   const lastSyncedUserRef = useRef<string | null>(null);
 
-  const refreshCustomPrograms = useCallback(async () => {
+  const refreshCustomPrograms = useCallback(async (): Promise<CustomProgram[]> => {
     try {
-      const savedPrograms = await getCustomPrograms();
-      setCustomPrograms(savedPrograms);
+      const programs = await getCustomPrograms();
+      setCustomPrograms(programs);
+      console.log("[Context] Programs after save:", programs.length);
+      return programs;
     } catch (error) {
       console.error("[WorkoutContext] Failed to sync custom programs", error);
       setCustomPrograms([]);
+      return [];
     }
   }, []);
 

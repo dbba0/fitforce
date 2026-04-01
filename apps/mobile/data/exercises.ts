@@ -13,6 +13,7 @@ export interface ExerciseTranslation {
 export interface Exercise {
   id: string;
   youtubeId: string;
+  videoUrl?: string;
   imageColor: string;
   equipment: Equipment;
   muscles: MuscleGroup[];
@@ -30,7 +31,7 @@ export interface Exercise {
   };
 }
 
-export const EXERCISES: Exercise[] = [
+const EXERCISES_RAW: Exercise[] = [
   {
     id: "pushup",
     youtubeId: "IODxDxX7oi4",
@@ -3356,6 +3357,11 @@ export const EXERCISES: Exercise[] = [
     },
   },
 ];
+
+export const EXERCISES: Exercise[] = EXERCISES_RAW.map((exercise) => ({
+  ...exercise,
+  videoUrl: exercise.videoUrl ?? `https://www.youtube.com/watch?v=${exercise.youtubeId}`,
+}));
 
 export function getExerciseById(id: string): Exercise | undefined {
   return EXERCISES.find((e) => e.id === id);

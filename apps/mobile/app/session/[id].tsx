@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Alert,
   Dimensions,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +14,7 @@ import {
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
+import { Audio } from "expo-av";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Animated, {
   FadeIn,
@@ -55,6 +58,7 @@ type SessionPrHit = {
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const STREAK_MILESTONES = [7, 30, 100] as const;
 const STREAK_MILESTONES_KEY = "@fitforce_streak_milestones";
+const HAS_SCROLLED_EXERCISE_KEY = "hasScrolledExercise";
 
 function formatTime(seconds: number): string {
   const mins = Math.floor(seconds / 60);
@@ -223,15 +227,11 @@ function SessionBottomBar({
   theme,
   t,
   currentWorkout,
-  nextExerciseName,
-  nextExerciseMeta,
   bottomInset,
 }: {
   theme: typeof Colors.dark | typeof Colors.light;
   t: (key: TranslationKey) => string;
   currentWorkout?: SessionBottomWorkout;
-  nextExerciseName?: string;
-  nextExerciseMeta?: string;
   bottomInset: number;
 }) {
   const hasWeight = Number(currentWorkout?.effectiveWeight ?? 0) > 0;
@@ -295,24 +295,6 @@ function SessionBottomBar({
         </View>
       </View>
 
-      {nextExerciseName ? (
-        <View style={styles.sessionBottomNextRow}>
-          <Text style={[styles.sessionBottomNextLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
-            {t("nextExercise").toUpperCase()}
-          </Text>
-          <Text
-            style={[styles.sessionBottomNextName, { color: theme.text, fontFamily: Typography.bodySemiBold }]}
-            numberOfLines={1}
-          >
-            {nextExerciseName}
-          </Text>
-          {nextExerciseMeta ? (
-            <Text style={[styles.sessionBottomNextMeta, { color: theme.textSecondary, fontFamily: Typography.body }]}>
-              {nextExerciseMeta}
-            </Text>
-          ) : null}
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -846,10 +828,12 @@ export default function SessionScreen() {
   const [validationTick, setValidationTick] = useState(0);
   const [showSetValidationSuccess, setShowSetValidationSuccess] = useState(false);
   const [exerciseHistoryMap, setExerciseHistoryMap] = useState<Record<string, ExerciseLastPerformance>>({});
+  const [hasScrolledExercise, setHasScrolledExercise] = useState(false);
 
   const elapsedRef = useRef(0);
   const activeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
   const completionTriggeredRef = useRef(false);
   const doneSetScale = useSharedValue(1);
   const doneSetAnimatedStyle = useAnimatedStyle(() => ({
@@ -917,6 +901,49 @@ export default function SessionScreen() {
   }, [addSession, exIndex, program, setIndex, sessionPrHits.length, t, totalExercises, workoutsWithEx]);
 
   useEffect(() => {
+    let mounted = true;
+
+    void (async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: false,
+        });
+
+        const { sound } = await Audio.Sound.createAsync(
+          require("../../assets/sounds/beep.mp3"),
+          { shouldPlay: false }
+        );
+
+        if (mounted) {
+          soundRef.current = sound;
+        } else {
+          await sound.unloadAsync();
+        }
+      } catch (error) {
+        console.error("[Session] Failed to preload rest beep sound", error);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+      const sound = soundRef.current;
+      soundRef.current = null;
+      if (sound) {
+        void sound.unloadAsync();
+      }
+    };
+  }, []);
+
+  const playRestCompletionCue = useCallback(async () => {
+    try {
+      await soundRef.current?.replayAsync();
+    } catch (error) {
+      console.error("[Session] Failed to play rest completion beep", error);
+    }
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const keepAwakeTag = "fitforce-session";
     if (phase !== "done") {
       activateKeepAwakeAsync(keepAwakeTag).catch(() => {});
@@ -958,10 +985,28 @@ export default function SessionScreen() {
   }, [resumeCountdown]);
 
   useEffect(() => {
+    AsyncStorage.getItem(HAS_SCROLLED_EXERCISE_KEY)
+      .then((value) => {
+        if (value === "1") setHasScrolledExercise(true);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     getExerciseHistoryMap()
       .then((map) => setExerciseHistoryMap(map))
       .catch(() => {});
   }, []);
+
+  const handleExerciseDetailsScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (hasScrolledExercise) return;
+      if (event.nativeEvent.contentOffset.y <= 10) return;
+      setHasScrolledExercise(true);
+      AsyncStorage.setItem(HAS_SCROLLED_EXERCISE_KEY, "1").catch(() => {});
+    },
+    [hasScrolledExercise]
+  );
 
   useEffect(() => {
     if (phase !== "active" || isPaused || resumeCountdown !== null) return;
@@ -1001,7 +1046,7 @@ export default function SessionScreen() {
       setRestLeft((prev) => {
         if (prev <= 1) {
           if (restIntervalRef.current) clearInterval(restIntervalRef.current);
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          void playRestCompletionCue();
           advanceAfterRest();
           return 0;
         }
@@ -1012,11 +1057,11 @@ export default function SessionScreen() {
     return () => {
       if (restIntervalRef.current) clearInterval(restIntervalRef.current);
     };
-  }, [phase, restLeft, advanceAfterRest, isPaused, resumeCountdown]);
+  }, [phase, restLeft, advanceAfterRest, isPaused, resumeCountdown, playRestCompletionCue]);
 
   const handleSetDone = () => {
     if (isPaused || resumeCountdown !== null) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     doneSetScale.value = withSequence(
       withTiming(0.94, { duration: 90 }),
       withTiming(1.06, { duration: 120 }),
@@ -1300,213 +1345,276 @@ export default function SessionScreen() {
 
       {phase === "active" ? (
         <Animated.View entering={FadeIn.duration(280)} style={styles.activeScreen}>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={true}
-            contentContainerStyle={{ paddingBottom: 120 }}
-          >
-            <View style={styles.activeContent}>
-              <Text style={[styles.exerciseTitle, { color: theme.text, fontFamily: Typography.titleStrong }]}>
+          <View style={styles.activeAboveFold}>
+            <Text style={[styles.exerciseMeta, { color: theme.accent, fontFamily: Typography.labelTech }]}>
+              {`${muscleLabel} · ${equipmentLabel}`.toUpperCase()}
+            </Text>
+            <View style={styles.exerciseTitleRow}>
+              <Text
+                style={[styles.exerciseTitle, { color: theme.text, fontFamily: Typography.titleStrong }]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
                 {exerciseTranslation?.name}
               </Text>
-
-              <AppCard
-                variant="elevated"
-                style={[
-                  styles.immersiveTimerCard,
+              <Pressable
+                onPress={() => {
+                  if (!currentExercise?.id) return;
+                  router.push({
+                    pathname: "/exercise/[id]",
+                    params: { id: currentExercise.id },
+                  });
+                }}
+                style={({ pressed }) => [
+                  styles.exerciseHelpBtn,
                   {
                     backgroundColor: theme.card,
                     borderColor: theme.border,
-                    borderRadius: radius.lg,
+                    opacity: pressed ? 0.78 : 1,
+                  },
+                ]}
+                hitSlop={8}
+              >
+                <Ionicons name="help-circle-outline" size={18} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+
+            <AppCard
+              variant="elevated"
+              style={[
+                styles.immersiveTimerCard,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: theme.border,
+                  borderRadius: radius.lg,
+                },
+              ]}
+            >
+              <View style={styles.immersiveTimerTopRow}>
+                <Text style={[styles.immersiveTimerLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+                  {t("sessionDurationLabel").toUpperCase()}
+                </Text>
+                <Text style={[styles.immersiveTimerProgress, { color: theme.textSecondary, fontFamily: Typography.bodySemiBold }]}>
+                  {progressLabel}
+                </Text>
+              </View>
+
+              <Text style={[styles.immersiveTimerValue, { color: theme.text, fontFamily: Typography.titleStrong }]}>
+                {formatTime(elapsed)}
+              </Text>
+
+              <View style={styles.setLine}>
+                <Text style={[styles.setLineLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}>
+                  {t("set").toUpperCase()}
+                </Text>
+                <SetDots total={setProgress} current={setIndex} done={setIndex - 1} style={styles.setDotsRow} />
+                <Text style={[styles.setLineCount, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+                  {displayedSet} / {setProgress}
+                </Text>
+              </View>
+              <View style={[styles.setProgressTrack, { backgroundColor: theme.border }]}>
+                <View
+                  style={[
+                    styles.setProgressFill,
+                    {
+                      width: `${setProgressPct}%` as const,
+                      backgroundColor: theme.accent,
+                    },
+                  ]}
+                />
+              </View>
+            </AppCard>
+
+            {lastPerformance ? (
+              <Text
+                style={[
+                  styles.vsLastText,
+                  {
+                    color: isVsLastImproved ? theme.success : theme.textSecondary,
+                    fontFamily: Typography.body,
                   },
                 ]}
               >
-                <View style={styles.immersiveTimerTopRow}>
-                  <Text style={[styles.immersiveTimerLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
-                    {t("sessionDurationLabel").toUpperCase()}
+                {formatTemplate(t("sessionVsLastTimePattern"), {
+                  sets: lastPerformance.sets,
+                  reps: lastPerformance.reps,
+                  weight: Math.round(lastPerformance.weightKg),
+                })}
+              </Text>
+            ) : null}
+
+            {!hasScrolledExercise ? (
+              <Text style={[styles.detailsHint, { color: "#6B7280", fontFamily: Typography.bodyRegular }]}>
+                {t("sessionSeeDetailsHint")}
+              </Text>
+            ) : null}
+
+            {prToast ? (
+              <Animated.View
+                entering={FadeInDown.duration(220)}
+                style={[
+                  styles.prToast,
+                  {
+                    backgroundColor: `${theme.accent}18`,
+                    borderColor: `${theme.accent}55`,
+                  },
+                ]}
+              >
+                <Ionicons name="trophy-outline" size={18} color={theme.accent} />
+                <View style={styles.prTextWrap}>
+                  <Text style={[styles.prTitle, { color: theme.accent, fontFamily: Typography.labelTech }]}>
+                    {t("sessionNewPrBadge")}
                   </Text>
-                  <Text style={[styles.immersiveTimerProgress, { color: theme.textSecondary, fontFamily: Typography.bodySemiBold }]}>
-                    {progressLabel}
+                  <Text style={[styles.prValue, { color: theme.text, fontFamily: Typography.bodySemiBold }]}>
+                    {formatTemplate(t("sessionNewPrValue"), { score: prToast.score })}
                   </Text>
                 </View>
+              </Animated.View>
+            ) : null}
 
-                <Text style={[styles.immersiveTimerValue, { color: theme.text, fontFamily: Typography.titleStrong }]}>
-                  {formatTime(elapsed)}
+            <Animated.View style={doneSetAnimatedStyle}>
+              <Pressable
+                onPress={handleSetDone}
+                disabled={isPaused || resumeCountdown !== null}
+                style={({ pressed }) => [
+                  styles.doneSetBtn,
+                  {
+                    backgroundColor: theme.accent,
+                    opacity: isPaused || resumeCountdown !== null ? 0.45 : pressed ? 0.86 : 1,
+                  },
+                ]}
+              >
+                <Ionicons name="checkmark" size={22} color="#fff" />
+                <Text style={[styles.doneSetBtnText, { fontFamily: Typography.titleStrong }]}>
+                  {doneSetLabel}
                 </Text>
+              </Pressable>
+            </Animated.View>
 
-                <View style={styles.setLine}>
-                  <Text style={[styles.setLineLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}>
-                    {t("set").toUpperCase()}
-                  </Text>
-                  <SetDots total={setProgress} current={setIndex} done={setIndex - 1} style={styles.setDotsRow} />
-                  <Text style={[styles.setLineCount, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
-                    {displayedSet} / {setProgress}
-                  </Text>
-                </View>
-                <View style={[styles.setProgressTrack, { backgroundColor: theme.border }]}>
-                  <View
-                    style={[
-                      styles.setProgressFill,
-                      {
-                        width: `${setProgressPct}%` as const,
-                        backgroundColor: theme.accent,
-                      },
-                    ]}
-                  />
-                </View>
-              </AppCard>
-
-              {lastPerformance ? (
-                <Text
-                  style={[
-                    styles.vsLastText,
-                    {
-                      color: isVsLastImproved ? theme.success : theme.textSecondary,
-                      fontFamily: Typography.body,
-                    },
-                  ]}
-                >
-                  {formatTemplate(t("sessionVsLastTimePattern"), {
-                    sets: lastPerformance.sets,
-                    reps: lastPerformance.reps,
-                    weight: Math.round(lastPerformance.weightKg),
-                  })}
-                </Text>
-              ) : null}
-
-              {prToast ? (
+            <View style={styles.setSuccessSlot}>
+              {showSetValidationSuccess ? (
                 <Animated.View
-                  entering={FadeInDown.duration(220)}
-                  style={[
-                    styles.prToast,
-                    {
-                      backgroundColor: `${theme.accent}18`,
-                      borderColor: `${theme.accent}55`,
-                    },
-                  ]}
+                  key={`set-success-${validationTick}`}
+                  entering={FadeInUp.duration(180)}
+                  exiting={FadeOutUp.duration(220)}
+                  style={[styles.setSuccessChip, { backgroundColor: `${theme.success}22`, borderColor: `${theme.success}66` }]}
                 >
-                  <Ionicons name="trophy-outline" size={18} color={theme.accent} />
-                  <View style={styles.prTextWrap}>
-                    <Text style={[styles.prTitle, { color: theme.accent, fontFamily: Typography.labelTech }]}>
-                      {t("sessionNewPrBadge")}
-                    </Text>
-                    <Text style={[styles.prValue, { color: theme.text, fontFamily: Typography.bodySemiBold }]}>
-                      {formatTemplate(t("sessionNewPrValue"), { score: prToast.score })}
-                    </Text>
-                  </View>
+                  <Ionicons name="checkmark-circle" size={16} color={theme.success} />
+                  <Text style={[styles.setSuccessText, { color: theme.success, fontFamily: Typography.bodySemiBold }]}>
+                    {t("setComplete")}
+                  </Text>
                 </Animated.View>
               ) : null}
+            </View>
+          </View>
 
-              <Animated.View style={doneSetAnimatedStyle}>
-                <Pressable
-                  onPress={handleSetDone}
-                  disabled={isPaused || resumeCountdown !== null}
-                  style={({ pressed }) => [
-                    styles.doneSetBtn,
-                    {
-                      backgroundColor: theme.accent,
-                      opacity: isPaused || resumeCountdown !== null ? 0.45 : pressed ? 0.86 : 1,
-                    },
-                  ]}
-                >
-                  <Ionicons name="checkmark" size={22} color="#fff" />
-                  <Text style={[styles.doneSetBtnText, { fontFamily: Typography.titleStrong }]}>
-                    {doneSetLabel}
-                  </Text>
-                </Pressable>
-              </Animated.View>
+          <ScrollView
+            style={styles.activeDetailsScroll}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={true}
+            onScroll={handleExerciseDetailsScroll}
+            scrollEventThrottle={16}
+            contentContainerStyle={styles.activeDetailsContent}
+          >
+            <View style={styles.bottomActionsRow}>
+              <Pressable
+                onPress={handlePrevious}
+                disabled={setIndex === 0 && exIndex === 0 || isPaused || resumeCountdown !== null}
+                style={({ pressed }) => [
+                  styles.secondaryAction,
+                  {
+                    opacity: setIndex === 0 && exIndex === 0 || isPaused || resumeCountdown !== null ? 0.3 : pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Text style={[styles.secondaryActionText, { color: theme.textMuted, fontFamily: Typography.bodySemiBold }]}>
+                  {t("sessionPreviousAction")}
+                </Text>
+              </Pressable>
 
-              <View style={styles.setSuccessSlot}>
-                {showSetValidationSuccess ? (
-                  <Animated.View
-                    key={`set-success-${validationTick}`}
-                    entering={FadeInUp.duration(180)}
-                    exiting={FadeOutUp.duration(220)}
-                    style={[styles.setSuccessChip, { backgroundColor: `${theme.success}22`, borderColor: `${theme.success}66` }]}
-                  >
-                    <Ionicons name="checkmark-circle" size={16} color={theme.success} />
-                    <Text style={[styles.setSuccessText, { color: theme.success, fontFamily: Typography.bodySemiBold }]}>
-                      {t("setComplete")}
-                    </Text>
-                  </Animated.View>
-                ) : null}
-              </View>
+              <Pressable
+                onPress={handleSkipExercise}
+                disabled={isPaused || resumeCountdown !== null}
+                style={({ pressed }) => [
+                  styles.secondaryAction,
+                  { opacity: isPaused || resumeCountdown !== null ? 0.3 : pressed ? 0.7 : 1 },
+                ]}
+              >
+                <Text style={[styles.secondaryActionText, { color: theme.textMuted, fontFamily: Typography.bodySemiBold }]}>
+                  {t("sessionSkipAction")}
+                </Text>
+              </Pressable>
+            </View>
 
-              <View style={styles.bottomActionsRow}>
-                <Pressable
-                  onPress={handlePrevious}
-                  disabled={setIndex === 0 && exIndex === 0 || isPaused || resumeCountdown !== null}
-                  style={({ pressed }) => [
-                    styles.secondaryAction,
-                    {
-                      opacity: setIndex === 0 && exIndex === 0 || isPaused || resumeCountdown !== null ? 0.3 : pressed ? 0.7 : 1,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.secondaryActionText, { color: theme.textMuted, fontFamily: Typography.bodySemiBold }]}>
-                    {t("sessionPreviousAction")}
-                  </Text>
-                </Pressable>
+            <AppCard
+              variant="default"
+              style={[
+                styles.exerciseDetailsCard,
+                {
+                  backgroundColor: theme.cardElevated,
+                  borderColor: theme.border,
+                  borderRadius: radius.md,
+                },
+              ]}
+            >
+              {exerciseTranslation?.description ? (
+                <Text style={[styles.exerciseDetailsText, { color: theme.textSecondary, fontFamily: Typography.body }]}>
+                  {exerciseTranslation.description}
+                </Text>
+              ) : null}
+              <ExerciseMedia
+                exerciseId={currentExercise?.id}
+                type="auto"
+                size={190}
+                autoPlay={phase === "active"}
+                loop
+                isActive={phase === "active"}
+                muscles={currentExercise?.muscles ?? []}
+                title={exerciseTranslation?.name ?? t("sessionIllustrationPlaceholder")}
+                subtitle={exerciseTranslation?.description ?? t("sessionIllustrationPlaceholder")}
+                theme={theme}
+                highlightColor={theme.accent}
+              />
+            </AppCard>
 
-                <Pressable
-                  onPress={handleSkipExercise}
-                  disabled={isPaused || resumeCountdown !== null}
-                  style={({ pressed }) => [
-                    styles.secondaryAction,
-                    { opacity: isPaused || resumeCountdown !== null ? 0.3 : pressed ? 0.7 : 1 },
-                  ]}
-                >
-                  <Text style={[styles.secondaryActionText, { color: theme.textMuted, fontFamily: Typography.bodySemiBold }]}>
-                    {t("sessionSkipAction")}
-                  </Text>
-                </Pressable>
-              </View>
-
-              <View style={styles.foldSpacer} />
-
+            {nextExerciseTranslation?.name ? (
               <AppCard
                 variant="default"
                 style={[
-                  styles.exerciseDetailsCard,
+                  styles.nextExerciseCard,
                   {
-                    backgroundColor: theme.cardElevated,
+                    backgroundColor: theme.card,
                     borderColor: theme.border,
                     borderRadius: radius.md,
                   },
                 ]}
               >
-                <Text style={[styles.exerciseMeta, { color: theme.accent, fontFamily: Typography.labelTech }]}>
-                  {`${muscleLabel} · ${equipmentLabel}`.toUpperCase()}
+                <Text style={[styles.nextExerciseLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}>
+                  {t("nextExercise").toUpperCase()}
                 </Text>
-                {exerciseTranslation?.description ? (
-                  <Text style={[styles.exerciseDetailsText, { color: theme.textSecondary, fontFamily: Typography.body }]}>
-                    {exerciseTranslation.description}
+                <View style={styles.nextExerciseRow}>
+                  <Text
+                    style={[styles.nextExerciseName, { color: theme.text, fontFamily: Typography.bodySemiBold }]}
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                  >
+                    {nextExerciseTranslation.name}
                   </Text>
-                ) : null}
-                <ExerciseMedia
-                  exerciseId={currentExercise?.id}
-                  type="auto"
-                  size={190}
-                  autoPlay={phase === "active"}
-                  loop
-                  isActive={phase === "active"}
-                  muscles={currentExercise?.muscles ?? []}
-                  title={exerciseTranslation?.name ?? t("sessionIllustrationPlaceholder")}
-                  subtitle={exerciseTranslation?.description ?? t("sessionIllustrationPlaceholder")}
-                  theme={theme}
-                  highlightColor={theme.accent}
-                />
+                  {nextExerciseMeta ? (
+                    <Text style={[styles.nextExerciseMeta, { color: theme.textSecondary, fontFamily: Typography.body }]}>
+                      {nextExerciseMeta}
+                    </Text>
+                  ) : null}
+                </View>
               </AppCard>
-            </View>
+            ) : null}
           </ScrollView>
 
           <SessionBottomBar
             theme={theme}
             t={t}
             currentWorkout={currentWorkout}
-            nextExerciseName={nextExerciseTranslation?.name}
-            nextExerciseMeta={nextExerciseMeta}
             bottomInset={insets.bottom}
           />
         </Animated.View>
@@ -1627,14 +1735,22 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textTransform: "uppercase",
   },
-  activeContent: {
+  activeAboveFold: {
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 20,
-    gap: 12,
+    gap: 10,
   },
   activeScreen: {
     flex: 1,
+  },
+  activeDetailsScroll: {
+    flex: 1,
+  },
+  activeDetailsContent: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 100,
+    gap: 12,
   },
   exerciseMeta: {
     fontSize: 12,
@@ -1642,9 +1758,26 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   exerciseTitle: {
-    fontSize: 52,
-    lineHeight: 54,
-    letterSpacing: -1,
+    fontSize: 36,
+    lineHeight: 40,
+    letterSpacing: -0.8,
+  },
+  exerciseTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  exerciseHelpBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  detailsHint: {
+    fontSize: 12,
+    lineHeight: 16,
   },
   immersiveTimerCard: {
     gap: 10,
@@ -1813,9 +1946,6 @@ const styles = StyleSheet.create({
   },
   secondaryActionText: {
     fontSize: 16,
-  },
-  foldSpacer: {
-    height: 72,
   },
   exerciseDetailsCard: {
     paddingHorizontal: 14,
