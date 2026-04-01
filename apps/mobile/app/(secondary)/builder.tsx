@@ -33,7 +33,6 @@ import {
   CustomExerciseItem,
   CustomProgram,
   CustomProgramMode,
-  getCustomPrograms,
   saveCustomPrograms,
 } from "@/utils/customProgramStorage";
 import { TranslationKey } from "@/lib/i18n";
@@ -230,7 +229,7 @@ function SelectPill({
 
 export default function BuilderScreen() {
   const { t, language } = useLanguage();
-  const { profile } = useWorkout();
+  const { profile, customPrograms, refreshCustomPrograms } = useWorkout();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -245,6 +244,7 @@ export default function BuilderScreen() {
   const [draft, setDraft] = useState<CustomProgram>(createEmptyProgram("gym"));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [unitSystem, setUnitSystem] = useState<UnitSystem>("kg");
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [activeDayId, setActiveDayId] = useState<string>(draft.days[0]?.id || "");
   const [exerciseQuery, setExerciseQuery] = useState("");
@@ -253,8 +253,8 @@ export default function BuilderScreen() {
   const [editingExercise, setEditingExercise] = useState<EditableExerciseState>(null);
 
   useEffect(() => {
-    getCustomPrograms().then(setPrograms).catch(() => setPrograms([]));
-  }, []);
+    setPrograms(customPrograms);
+  }, [customPrograms]);
 
   useEffect(() => {
     AsyncStorage.getItem(UNIT_KEY)
@@ -505,6 +505,8 @@ export default function BuilderScreen() {
   };
 
   const saveDraftProgram = async () => {
+    setSaveError(null);
+
     if (!draft.title.trim()) {
       Alert.alert(t("builder"), t("builderAlertAddProgramName"));
       return;
@@ -530,12 +532,22 @@ export default function BuilderScreen() {
       ? programs.map((item) => (item.id === editingId ? next : item))
       : [{ ...next, id: createId("cp"), createdAt: now }, ...programs];
 
-    await saveCustomPrograms(updated);
-    setPrograms(updated);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-    Alert.alert(t("builder"), editingId ? t("builderAlertUpdated") : t("builderAlertSaved"));
-    resetDraft();
+    try {
+      await saveCustomPrograms(updated);
+      await refreshCustomPrograms();
+      setPrograms(updated);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      Alert.alert(t("builder"), editingId ? t("builderAlertUpdated") : t("builderAlertSaved"));
+      resetDraft();
+    } catch (error) {
+      console.error("[Builder] Failed to save custom program", {
+        error,
+        editingId,
+        draftTitle: draft.title,
+        mode,
+      });
+      setSaveError(t("builderSaveErrorInline"));
+    }
   };
 
   const editProgram = (program: CustomProgram) => {
@@ -559,6 +571,7 @@ export default function BuilderScreen() {
 
     const updated = [copy, ...programs];
     await saveCustomPrograms(updated);
+    await refreshCustomPrograms();
     setPrograms(updated);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
@@ -566,6 +579,7 @@ export default function BuilderScreen() {
   const deleteProgram = async (id: string) => {
     const updated = programs.filter((item) => item.id !== id);
     await saveCustomPrograms(updated);
+    await refreshCustomPrograms();
     setPrograms(updated);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -609,6 +623,9 @@ export default function BuilderScreen() {
             <Text
               style={[styles.headerTitle, { color: theme.text, fontFamily: "Syne_800ExtraBold" }]}
               numberOfLines={1}
+              ellipsizeMode="tail"
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
             >
               {screenTitle}
             </Text>
@@ -999,6 +1016,12 @@ export default function BuilderScreen() {
                 ))}
               </View>
 
+              {saveError ? (
+                <Text style={[styles.saveErrorText, { color: theme.error, fontFamily: "DMSans_600SemiBold" }]}>
+                  {saveError}
+                </Text>
+              ) : null}
+
               <GhostButton label={t("builderResetDraftCta")} onPress={resetDraft} />
             </>
           ) : null}
@@ -1094,9 +1117,9 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     flex: 1,
-    fontSize: 44,
-    lineHeight: 48,
-    letterSpacing: -1,
+    fontSize: 28,
+    lineHeight: 32,
+    letterSpacing: -0.8,
   },
   stepRow: {
     flexDirection: "row",
@@ -1318,6 +1341,11 @@ const styles = StyleSheet.create({
   savedActions: {
     flexDirection: "row",
     gap: 6,
+  },
+  saveErrorText: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 2,
   },
   bottomBar: {
     position: "absolute",

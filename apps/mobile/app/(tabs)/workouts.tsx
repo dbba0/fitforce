@@ -79,7 +79,7 @@ function getLastSessionLabel(
 
 export default function WorkoutsScreen() {
   const { t } = useLanguage();
-  const { sessions, isLoaded } = useWorkout();
+  const { sessions, isLoaded, customPrograms, refreshCustomPrograms } = useWorkout();
   const insets = useSafeAreaInsets();
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
@@ -111,6 +111,12 @@ export default function WorkoutsScreen() {
       .slice(0, 3);
   }, [activeTab]);
 
+  const sortedCustomPrograms = useMemo(() => {
+    return [...customPrograms].sort(
+      (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
+    );
+  }, [customPrograms]);
+
   useEffect(() => {
     setIsProgramsTransitioning(true);
     const timer = setTimeout(() => {
@@ -120,6 +126,12 @@ export default function WorkoutsScreen() {
 
     return () => clearTimeout(timer);
   }, [visiblePrograms]);
+
+  useEffect(() => {
+    refreshCustomPrograms().catch((error) => {
+      console.error("[Workouts] Failed to refresh custom programs", error);
+    });
+  }, [refreshCustomPrograms]);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -145,6 +157,7 @@ export default function WorkoutsScreen() {
           <Text
             style={[styles.title, { color: theme.text, fontFamily: Typography.titleStrong }]}
             numberOfLines={1}
+            ellipsizeMode="tail"
             adjustsFontSizeToFit
             minimumFontScale={0.82}
           >
@@ -301,6 +314,39 @@ export default function WorkoutsScreen() {
               </Text>
             </View>
           </Card>
+
+          {sortedCustomPrograms.length > 0 ? (
+            <View style={styles.customProgramList}>
+              {sortedCustomPrograms.map((program) => {
+                const exercisesCount = program.days.reduce((acc, day) => acc + day.exercises.length, 0);
+                return (
+                  <Card
+                    key={program.id}
+                    style={[
+                      styles.customProgramCard,
+                      {
+                        backgroundColor: theme.card,
+                        borderColor: theme.border,
+                        borderLeftColor: `${theme.accent}88`,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.customProgramTitle, { color: theme.text, fontFamily: Typography.title }]}>
+                      {program.title}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.customProgramMeta,
+                        { color: theme.textSecondary, fontFamily: Typography.bodyRegular },
+                      ]}
+                    >
+                      {`${program.days.length} ${t("days")} · ${exercisesCount} ${t("exercises")} · ${program.estimatedMinutes} ${t("minutes")}`}
+                    </Text>
+                  </Card>
+                );
+              })}
+            </View>
+          ) : null}
         </Animated.View>
       </ScrollView>
 
@@ -347,9 +393,9 @@ const styles = StyleSheet.create({
   title: {
     flexShrink: 1,
     marginRight: 12,
-    fontSize: 38,
+    fontSize: 30,
     letterSpacing: -0.8,
-    lineHeight: 40,
+    lineHeight: 32,
   },
   searchButton: {
     width: 58,
@@ -472,6 +518,24 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     lineHeight: 22,
+  },
+  customProgramList: {
+    gap: 10,
+  },
+  customProgramCard: {
+    borderRadius: 20,
+    borderLeftWidth: 3,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  customProgramTitle: {
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  customProgramMeta: {
+    marginTop: 4,
+    fontSize: 13,
+    lineHeight: 18,
   },
   fab: {
     position: "absolute",

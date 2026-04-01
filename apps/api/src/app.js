@@ -66,12 +66,14 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/programs', programRoutes);
+app.use('/api/sessions', sessionRoutes);
+// Deprecated: keep `/api/workouts` for backward compatibility. New writes/reads should use `/api/sessions`.
+// TODO: remove once all clients are migrated.
 app.use('/api/workouts', workoutRoutes);
 app.use('/api/goals', goalRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/nutrition', nutritionRoutes);
 app.use('/api/billing', billingRoutes);
-app.use('/api/sessions', sessionRoutes);
 app.use('/api', socialRoutes);
 app.use('/api/privacy', privacyRoutes);
 

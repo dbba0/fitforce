@@ -12,8 +12,8 @@ export const HomePremium = {
     glow: "rgba(147, 51, 234, 0.32)",
     borderSubtle: "rgba(255, 255, 255, 0.1)",
     card: "#121214",
-    textSecondary: "#9CA3AF",
-    textMuted: "#6B7280",
+    textSecondary: "#A1A1AA",
+    textMuted: "#A1A1AA",
   },
   light: {
     screenBg: "#F4F4F6",

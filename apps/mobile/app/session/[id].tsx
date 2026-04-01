@@ -213,6 +213,110 @@ function CircleTimer({
   );
 }
 
+type SessionBottomWorkout = {
+  effectiveReps?: number | string;
+  effectiveWeight?: number;
+  restSeconds?: number;
+};
+
+function SessionBottomBar({
+  theme,
+  t,
+  currentWorkout,
+  nextExerciseName,
+  nextExerciseMeta,
+  bottomInset,
+}: {
+  theme: typeof Colors.dark | typeof Colors.light;
+  t: (key: TranslationKey) => string;
+  currentWorkout?: SessionBottomWorkout;
+  nextExerciseName?: string;
+  nextExerciseMeta?: string;
+  bottomInset: number;
+}) {
+  const hasWeight = Number(currentWorkout?.effectiveWeight ?? 0) > 0;
+  const weightValue = hasWeight ? String(Math.round(Number(currentWorkout?.effectiveWeight ?? 0))) : "-";
+  const repsUnit = typeof currentWorkout?.effectiveReps === "number" ? t("reps") : "";
+
+  return (
+    <View
+      style={[
+        styles.sessionBottomBar,
+        {
+          backgroundColor: theme.background,
+          borderTopColor: theme.border,
+          paddingBottom: Math.max(bottomInset, 8) + 6,
+        },
+      ]}
+    >
+      <View style={styles.sessionBottomMetricsRow}>
+        <View style={[styles.sessionBottomMetricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.sessionBottomMetricValue, { color: theme.text, fontFamily: Typography.titleStrong }]}>
+            {String(currentWorkout?.effectiveReps ?? "-")}
+          </Text>
+          <Text style={[styles.sessionBottomMetricUnit, { color: theme.textSecondary, fontFamily: Typography.bodySemiBold }]}>
+            {repsUnit}
+          </Text>
+          <Text style={[styles.sessionBottomMetricLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+            {t("sessionTargetLabel")}
+          </Text>
+        </View>
+
+        <View
+          style={[
+            styles.sessionBottomMetricCard,
+            {
+              backgroundColor: `${theme.accent}1A`,
+              borderColor: `${theme.accent}66`,
+            },
+          ]}
+        >
+          <Text style={[styles.sessionBottomMetricValue, { color: theme.accent, fontFamily: Typography.titleStrong }]}>
+            {weightValue}
+          </Text>
+          <Text style={[styles.sessionBottomMetricUnit, { color: theme.accent, fontFamily: Typography.title }]}>
+            {hasWeight ? t("kg") : ""}
+          </Text>
+          <Text style={[styles.sessionBottomMetricLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}>
+            {t("sessionWeightLabel")}
+          </Text>
+        </View>
+
+        <View style={[styles.sessionBottomMetricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Text style={[styles.sessionBottomMetricValue, { color: theme.text, fontFamily: Typography.titleStrong }]}>
+            {String(currentWorkout?.restSeconds ?? 0)}
+          </Text>
+          <Text style={[styles.sessionBottomMetricUnit, { color: theme.textSecondary, fontFamily: Typography.bodySemiBold }]}>
+            {t("seconds")}
+          </Text>
+          <Text style={[styles.sessionBottomMetricLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+            {t("sessionRestLabel")}
+          </Text>
+        </View>
+      </View>
+
+      {nextExerciseName ? (
+        <View style={styles.sessionBottomNextRow}>
+          <Text style={[styles.sessionBottomNextLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+            {t("nextExercise").toUpperCase()}
+          </Text>
+          <Text
+            style={[styles.sessionBottomNextName, { color: theme.text, fontFamily: Typography.bodySemiBold }]}
+            numberOfLines={1}
+          >
+            {nextExerciseName}
+          </Text>
+          {nextExerciseMeta ? (
+            <Text style={[styles.sessionBottomNextMeta, { color: theme.textSecondary, fontFamily: Typography.body }]}>
+              {nextExerciseMeta}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
 function CountdownBadge({ value, color }: { value: number; color: string }) {
   const scale = useSharedValue(0.8);
 
@@ -710,7 +814,7 @@ export default function SessionScreen() {
   const isDark = colorScheme === "dark";
   const theme = isDark ? Colors.dark : Colors.light;
   const { radius } = useAppTheme();
-  const { getCustomization } = useWorkout();
+  const { getCustomization, addSession } = useWorkout();
 
   const program = PROGRAMS.find((item) => item.id === id);
 
@@ -746,6 +850,7 @@ export default function SessionScreen() {
   const elapsedRef = useRef(0);
   const activeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const restIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const completionTriggeredRef = useRef(false);
   const doneSetScale = useSharedValue(1);
   const doneSetAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: doneSetScale.value }],
@@ -756,6 +861,60 @@ export default function SessionScreen() {
   const nextWorkout = workoutsWithEx[exIndex + 1];
   const nextExercise = nextWorkout?.exercise;
   const totalExercises = workoutsWithEx.length;
+
+  const finalizeSession = useCallback(() => {
+    if (!program || completionTriggeredRef.current) return;
+    completionTriggeredRef.current = true;
+
+    if (activeIntervalRef.current) clearInterval(activeIntervalRef.current);
+    if (restIntervalRef.current) clearInterval(restIntervalRef.current);
+
+    const totalElapsedSeconds = Math.max(0, Math.round(elapsedRef.current));
+    const totalMinutes = Math.max(1, Math.round(totalElapsedSeconds / 60));
+    const totalCalories = Math.round(
+      (program.caloriesPerSession * totalMinutes) / Math.max(1, program.durationMin)
+    );
+    const plannedSetCount = workoutsWithEx.reduce(
+      (sum, workout) => sum + Math.max(0, workout.effectiveSets ?? 0),
+      0
+    );
+    const completedBeforeCurrent = workoutsWithEx
+      .slice(0, exIndex)
+      .reduce((sum, workout) => sum + Math.max(0, workout.effectiveSets ?? 0), 0);
+    const totalSeriesCompleted = Math.min(
+      plannedSetCount,
+      completedBeforeCurrent + Math.max(1, setIndex + 1)
+    );
+    const exercisesCompleted = Math.max(1, Math.min(totalExercises, exIndex + 1));
+    const currentProgramName = t(program.nameKey as TranslationKey);
+    const completionDate = new Date().toISOString();
+
+    void (async () => {
+      try {
+        await addSession({
+          programId: program.id,
+          date: completionDate,
+          durationMin: totalMinutes,
+          calories: totalCalories,
+          completed: true,
+          type: "strength",
+        });
+      } catch (error) {
+        console.error("[Session] Failed to save completed session before completion screen", error);
+      }
+    })();
+
+    router.replace({
+      pathname: "/session/completion",
+      params: {
+        duration: String(totalElapsedSeconds),
+        exercisesCompleted: String(exercisesCompleted),
+        totalSeries: String(totalSeriesCompleted),
+        programName: currentProgramName,
+        prCount: String(sessionPrHits.length),
+      },
+    } as never);
+  }, [addSession, exIndex, program, setIndex, sessionPrHits.length, t, totalExercises, workoutsWithEx]);
 
   useEffect(() => {
     const keepAwakeTag = "fitforce-session";
@@ -832,8 +991,8 @@ export default function SessionScreen() {
       return;
     }
 
-    setPhase("done");
-  }, [setIndex, currentWorkout?.effectiveSets, exIndex, workoutsWithEx.length]);
+    finalizeSession();
+  }, [setIndex, currentWorkout?.effectiveSets, exIndex, workoutsWithEx.length, finalizeSession]);
 
   useEffect(() => {
     if (phase !== "rest" || restLeft <= 0 || isPaused || resumeCountdown !== null) return;
@@ -973,14 +1132,12 @@ export default function SessionScreen() {
       setSetIndex(0);
       return;
     }
-    setPhase("done");
+    finalizeSession();
   };
 
   const handleFinishEarly = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    if (activeIntervalRef.current) clearInterval(activeIntervalRef.current);
-    if (restIntervalRef.current) clearInterval(restIntervalRef.current);
-    setPhase("done");
+    finalizeSession();
   };
 
   const handleClose = () => {
@@ -1080,6 +1237,9 @@ export default function SessionScreen() {
     : formatTemplate(t("sessionRestDetailBodyweight"), {
         reps: String(currentWorkout?.effectiveReps ?? ""),
       });
+  const nextExerciseMeta = nextExerciseTranslation?.name
+    ? `${nextWorkout?.effectiveSets ?? 0} × ${nextWorkout?.effectiveReps ?? "-"}`
+    : undefined;
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}> 
@@ -1139,254 +1299,216 @@ export default function SessionScreen() {
       </View>
 
       {phase === "active" ? (
-        <Animated.View entering={FadeIn.duration(280)} style={styles.activeContent}> 
-          <Text style={[styles.exerciseMeta, { color: theme.accent, fontFamily: Typography.labelTech }]}> 
-            {`${muscleLabel} · ${equipmentLabel}`.toUpperCase()}
-          </Text>
-          <Text style={[styles.exerciseTitle, { color: theme.text, fontFamily: Typography.titleStrong }]}> 
-            {exerciseTranslation?.name}
-          </Text>
-
-          <AppCard
-            variant="elevated"
-            style={[
-              styles.immersiveTimerCard,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                borderRadius: radius.lg,
-              },
-            ]}
+        <Animated.View entering={FadeIn.duration(280)} style={styles.activeScreen}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={true}
+            contentContainerStyle={{ paddingBottom: 120 }}
           >
-            <View style={styles.immersiveTimerTopRow}>
-              <Text style={[styles.immersiveTimerLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
-                {t("sessionDurationLabel").toUpperCase()}
+            <View style={styles.activeContent}>
+              <Text style={[styles.exerciseTitle, { color: theme.text, fontFamily: Typography.titleStrong }]}>
+                {exerciseTranslation?.name}
               </Text>
-              <Text style={[styles.immersiveTimerProgress, { color: theme.textSecondary, fontFamily: Typography.bodySemiBold }]}>
-                {progressLabel}
-              </Text>
-            </View>
 
-            <Text style={[styles.immersiveTimerValue, { color: theme.text, fontFamily: Typography.titleStrong }]}>
-              {formatTime(elapsed)}
-            </Text>
-
-            <View style={styles.setLine}> 
-              <Text style={[styles.setLineLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}> 
-                {t("set").toUpperCase()}
-              </Text>
-              <SetDots total={setProgress} current={setIndex} done={setIndex - 1} style={styles.setDotsRow} />
-              <Text style={[styles.setLineCount, { color: theme.textMuted, fontFamily: Typography.labelTech }]}> 
-                {displayedSet} / {setProgress}
-              </Text>
-            </View>
-            <View style={[styles.setProgressTrack, { backgroundColor: theme.border }]}>
-              <View
+              <AppCard
+                variant="elevated"
                 style={[
-                  styles.setProgressFill,
+                  styles.immersiveTimerCard,
                   {
-                    width: `${setProgressPct}%` as const,
-                    backgroundColor: theme.accent,
+                    backgroundColor: theme.card,
+                    borderColor: theme.border,
+                    borderRadius: radius.lg,
                   },
                 ]}
-              />
-            </View>
-          </AppCard>
-
-          {lastPerformance ? (
-            <Text
-              style={[
-                styles.vsLastText,
-                {
-                  color: isVsLastImproved ? theme.success : theme.textSecondary,
-                  fontFamily: Typography.body,
-                },
-              ]}
-            >
-              {formatTemplate(t("sessionVsLastTimePattern"), {
-                sets: lastPerformance.sets,
-                reps: lastPerformance.reps,
-                weight: Math.round(lastPerformance.weightKg),
-              })}
-            </Text>
-          ) : null}
-
-          {prToast ? (
-            <Animated.View
-              entering={FadeInDown.duration(220)}
-              style={[
-                styles.prToast,
-                {
-                  backgroundColor: `${theme.accent}18`,
-                  borderColor: `${theme.accent}55`,
-                },
-              ]}
-            >
-              <Ionicons name="trophy-outline" size={18} color={theme.accent} />
-              <View style={styles.prTextWrap}>
-                <Text style={[styles.prTitle, { color: theme.accent, fontFamily: Typography.labelTech }]}>
-                  {t("sessionNewPrBadge")}
-                </Text>
-                <Text style={[styles.prValue, { color: theme.text, fontFamily: Typography.bodySemiBold }]}>
-                  {formatTemplate(t("sessionNewPrValue"), { score: prToast.score })}
-                </Text>
-              </View>
-            </Animated.View>
-          ) : null}
-
-          <ExerciseMedia
-            exerciseId={currentExercise?.id}
-            type="auto"
-            size={190}
-            autoPlay={phase === "active"}
-            loop
-            isActive={phase === "active"}
-            muscles={currentExercise?.muscles ?? []}
-            title={exerciseTranslation?.name ?? t("sessionIllustrationPlaceholder")}
-            subtitle={exerciseTranslation?.description ?? t("sessionIllustrationPlaceholder")}
-            theme={theme}
-            highlightColor={theme.accent}
-          />
-
-          {nextExerciseTranslation?.name ? (
-            <AppCard
-              variant="default"
-              style={[
-                styles.nextExerciseCard,
-                {
-                  backgroundColor: theme.cardElevated,
-                  borderColor: theme.border,
-                  borderRadius: radius.md,
-                },
-              ]}
-            >
-              <Text style={[styles.nextExerciseLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
-                {t("nextExercise").toUpperCase()}
-              </Text>
-              <View style={styles.nextExerciseRow}>
-                <Text
-                  style={[styles.nextExerciseName, { color: theme.text, fontFamily: Typography.bodySemiBold }]}
-                  numberOfLines={1}
-                >
-                  {nextExerciseTranslation.name}
-                </Text>
-                <Text style={[styles.nextExerciseMeta, { color: theme.textSecondary, fontFamily: Typography.body }]}>
-                  {`${nextWorkout?.effectiveSets ?? 0} × ${nextWorkout?.effectiveReps ?? "-"}`}
-                </Text>
-              </View>
-            </AppCard>
-          ) : null}
-
-          <View style={styles.metricsRow}> 
-            <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}> 
-              <Text style={[styles.metricValue, { color: theme.text, fontFamily: Typography.titleStrong }]}> 
-                {currentWorkout?.effectiveReps}
-              </Text>
-              <Text style={[styles.metricUnit, { color: theme.textSecondary, fontFamily: Typography.bodySemiBold }]}> 
-                {typeof currentWorkout?.effectiveReps === "number" ? t("reps") : ""}
-              </Text>
-              <Text style={[styles.metricLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}> 
-                {t("sessionTargetLabel")}
-              </Text>
-            </View>
-
-            <View
-              style={[
-                styles.metricCard,
-                {
-                  backgroundColor: `${theme.accent}1A`,
-                  borderColor: `${theme.accent}66`,
-                },
-              ]}
-            >
-              <Text style={[styles.metricValue, { color: theme.accent, fontFamily: Typography.titleStrong }]}> 
-                {Math.round(currentWorkout?.effectiveWeight ?? 0)}
-              </Text>
-              <Text style={[styles.metricUnit, { color: theme.accent, fontFamily: Typography.title }]}> 
-                {t("kg")}
-              </Text>
-              <Text style={[styles.metricLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}> 
-                {t("sessionWeightLabel")}
-              </Text>
-            </View>
-
-            <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}> 
-              <Text style={[styles.metricValue, { color: theme.text, fontFamily: Typography.titleStrong }]}> 
-                {currentWorkout?.restSeconds}
-              </Text>
-              <Text style={[styles.metricUnit, { color: theme.textSecondary, fontFamily: Typography.bodySemiBold }]}> 
-                {t("seconds")}
-              </Text>
-              <Text style={[styles.metricLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}> 
-                {t("sessionRestLabel")}
-              </Text>
-            </View>
-          </View>
-
-          <Animated.View style={doneSetAnimatedStyle}>
-            <Pressable
-              onPress={handleSetDone}
-              disabled={isPaused || resumeCountdown !== null}
-              style={({ pressed }) => [
-                styles.doneSetBtn,
-                {
-                  backgroundColor: theme.accent,
-                  opacity: isPaused || resumeCountdown !== null ? 0.45 : pressed ? 0.86 : 1,
-                },
-              ]}
-            >
-              <Ionicons name="checkmark" size={22} color="#fff" />
-              <Text style={[styles.doneSetBtnText, { fontFamily: Typography.titleStrong }]}> 
-                {doneSetLabel}
-              </Text>
-            </Pressable>
-          </Animated.View>
-
-          <View style={styles.setSuccessSlot}>
-            {showSetValidationSuccess ? (
-              <Animated.View
-                key={`set-success-${validationTick}`}
-                entering={FadeInUp.duration(180)}
-                exiting={FadeOutUp.duration(220)}
-                style={[styles.setSuccessChip, { backgroundColor: `${theme.success}22`, borderColor: `${theme.success}66` }]}
               >
-                <Ionicons name="checkmark-circle" size={16} color={theme.success} />
-                <Text style={[styles.setSuccessText, { color: theme.success, fontFamily: Typography.bodySemiBold }]}>
-                  {t("setComplete")}
+                <View style={styles.immersiveTimerTopRow}>
+                  <Text style={[styles.immersiveTimerLabel, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+                    {t("sessionDurationLabel").toUpperCase()}
+                  </Text>
+                  <Text style={[styles.immersiveTimerProgress, { color: theme.textSecondary, fontFamily: Typography.bodySemiBold }]}>
+                    {progressLabel}
+                  </Text>
+                </View>
+
+                <Text style={[styles.immersiveTimerValue, { color: theme.text, fontFamily: Typography.titleStrong }]}>
+                  {formatTime(elapsed)}
                 </Text>
+
+                <View style={styles.setLine}>
+                  <Text style={[styles.setLineLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}>
+                    {t("set").toUpperCase()}
+                  </Text>
+                  <SetDots total={setProgress} current={setIndex} done={setIndex - 1} style={styles.setDotsRow} />
+                  <Text style={[styles.setLineCount, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+                    {displayedSet} / {setProgress}
+                  </Text>
+                </View>
+                <View style={[styles.setProgressTrack, { backgroundColor: theme.border }]}>
+                  <View
+                    style={[
+                      styles.setProgressFill,
+                      {
+                        width: `${setProgressPct}%` as const,
+                        backgroundColor: theme.accent,
+                      },
+                    ]}
+                  />
+                </View>
+              </AppCard>
+
+              {lastPerformance ? (
+                <Text
+                  style={[
+                    styles.vsLastText,
+                    {
+                      color: isVsLastImproved ? theme.success : theme.textSecondary,
+                      fontFamily: Typography.body,
+                    },
+                  ]}
+                >
+                  {formatTemplate(t("sessionVsLastTimePattern"), {
+                    sets: lastPerformance.sets,
+                    reps: lastPerformance.reps,
+                    weight: Math.round(lastPerformance.weightKg),
+                  })}
+                </Text>
+              ) : null}
+
+              {prToast ? (
+                <Animated.View
+                  entering={FadeInDown.duration(220)}
+                  style={[
+                    styles.prToast,
+                    {
+                      backgroundColor: `${theme.accent}18`,
+                      borderColor: `${theme.accent}55`,
+                    },
+                  ]}
+                >
+                  <Ionicons name="trophy-outline" size={18} color={theme.accent} />
+                  <View style={styles.prTextWrap}>
+                    <Text style={[styles.prTitle, { color: theme.accent, fontFamily: Typography.labelTech }]}>
+                      {t("sessionNewPrBadge")}
+                    </Text>
+                    <Text style={[styles.prValue, { color: theme.text, fontFamily: Typography.bodySemiBold }]}>
+                      {formatTemplate(t("sessionNewPrValue"), { score: prToast.score })}
+                    </Text>
+                  </View>
+                </Animated.View>
+              ) : null}
+
+              <Animated.View style={doneSetAnimatedStyle}>
+                <Pressable
+                  onPress={handleSetDone}
+                  disabled={isPaused || resumeCountdown !== null}
+                  style={({ pressed }) => [
+                    styles.doneSetBtn,
+                    {
+                      backgroundColor: theme.accent,
+                      opacity: isPaused || resumeCountdown !== null ? 0.45 : pressed ? 0.86 : 1,
+                    },
+                  ]}
+                >
+                  <Ionicons name="checkmark" size={22} color="#fff" />
+                  <Text style={[styles.doneSetBtnText, { fontFamily: Typography.titleStrong }]}>
+                    {doneSetLabel}
+                  </Text>
+                </Pressable>
               </Animated.View>
-            ) : null}
-          </View>
 
-          <View style={styles.bottomActionsRow}> 
-            <Pressable
-              onPress={handlePrevious}
-              disabled={setIndex === 0 && exIndex === 0 || isPaused || resumeCountdown !== null}
-              style={({ pressed }) => [
-                styles.secondaryAction,
-                {
-                  opacity: setIndex === 0 && exIndex === 0 || isPaused || resumeCountdown !== null ? 0.3 : pressed ? 0.7 : 1,
-                },
-              ]}
-            >
-              <Text style={[styles.secondaryActionText, { color: theme.textMuted, fontFamily: Typography.bodySemiBold }]}> 
-                {t("sessionPreviousAction")}
-              </Text>
-            </Pressable>
+              <View style={styles.setSuccessSlot}>
+                {showSetValidationSuccess ? (
+                  <Animated.View
+                    key={`set-success-${validationTick}`}
+                    entering={FadeInUp.duration(180)}
+                    exiting={FadeOutUp.duration(220)}
+                    style={[styles.setSuccessChip, { backgroundColor: `${theme.success}22`, borderColor: `${theme.success}66` }]}
+                  >
+                    <Ionicons name="checkmark-circle" size={16} color={theme.success} />
+                    <Text style={[styles.setSuccessText, { color: theme.success, fontFamily: Typography.bodySemiBold }]}>
+                      {t("setComplete")}
+                    </Text>
+                  </Animated.View>
+                ) : null}
+              </View>
 
-            <Pressable
-              onPress={handleSkipExercise}
-              disabled={isPaused || resumeCountdown !== null}
-              style={({ pressed }) => [
-                styles.secondaryAction,
-                { opacity: isPaused || resumeCountdown !== null ? 0.3 : pressed ? 0.7 : 1 },
-              ]}
-            > 
-              <Text style={[styles.secondaryActionText, { color: theme.textMuted, fontFamily: Typography.bodySemiBold }]}> 
-                {t("sessionSkipAction")}
-              </Text>
-            </Pressable>
-          </View>
+              <View style={styles.bottomActionsRow}>
+                <Pressable
+                  onPress={handlePrevious}
+                  disabled={setIndex === 0 && exIndex === 0 || isPaused || resumeCountdown !== null}
+                  style={({ pressed }) => [
+                    styles.secondaryAction,
+                    {
+                      opacity: setIndex === 0 && exIndex === 0 || isPaused || resumeCountdown !== null ? 0.3 : pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.secondaryActionText, { color: theme.textMuted, fontFamily: Typography.bodySemiBold }]}>
+                    {t("sessionPreviousAction")}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={handleSkipExercise}
+                  disabled={isPaused || resumeCountdown !== null}
+                  style={({ pressed }) => [
+                    styles.secondaryAction,
+                    { opacity: isPaused || resumeCountdown !== null ? 0.3 : pressed ? 0.7 : 1 },
+                  ]}
+                >
+                  <Text style={[styles.secondaryActionText, { color: theme.textMuted, fontFamily: Typography.bodySemiBold }]}>
+                    {t("sessionSkipAction")}
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.foldSpacer} />
+
+              <AppCard
+                variant="default"
+                style={[
+                  styles.exerciseDetailsCard,
+                  {
+                    backgroundColor: theme.cardElevated,
+                    borderColor: theme.border,
+                    borderRadius: radius.md,
+                  },
+                ]}
+              >
+                <Text style={[styles.exerciseMeta, { color: theme.accent, fontFamily: Typography.labelTech }]}>
+                  {`${muscleLabel} · ${equipmentLabel}`.toUpperCase()}
+                </Text>
+                {exerciseTranslation?.description ? (
+                  <Text style={[styles.exerciseDetailsText, { color: theme.textSecondary, fontFamily: Typography.body }]}>
+                    {exerciseTranslation.description}
+                  </Text>
+                ) : null}
+                <ExerciseMedia
+                  exerciseId={currentExercise?.id}
+                  type="auto"
+                  size={190}
+                  autoPlay={phase === "active"}
+                  loop
+                  isActive={phase === "active"}
+                  muscles={currentExercise?.muscles ?? []}
+                  title={exerciseTranslation?.name ?? t("sessionIllustrationPlaceholder")}
+                  subtitle={exerciseTranslation?.description ?? t("sessionIllustrationPlaceholder")}
+                  theme={theme}
+                  highlightColor={theme.accent}
+                />
+              </AppCard>
+            </View>
+          </ScrollView>
+
+          <SessionBottomBar
+            theme={theme}
+            t={t}
+            currentWorkout={currentWorkout}
+            nextExerciseName={nextExerciseTranslation?.name}
+            nextExerciseMeta={nextExerciseMeta}
+            bottomInset={insets.bottom}
+          />
         </Animated.View>
       ) : (
         <Animated.View entering={FadeIn.duration(280)} style={styles.restContent}> 
@@ -1506,11 +1628,13 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   activeContent: {
-    flex: 1,
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 20,
     gap: 12,
+  },
+  activeScreen: {
+    flex: 1,
   },
   exerciseMeta: {
     fontSize: 12,
@@ -1644,7 +1768,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.1,
   },
   doneSetBtn: {
-    marginTop: "auto",
+    marginTop: 6,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -1689,6 +1813,74 @@ const styles = StyleSheet.create({
   },
   secondaryActionText: {
     fontSize: 16,
+  },
+  foldSpacer: {
+    height: 72,
+  },
+  exerciseDetailsCard: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  exerciseDetailsText: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  sessionBottomBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopWidth: 1,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    gap: 8,
+  },
+  sessionBottomMetricsRow: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  sessionBottomMetricCard: {
+    flex: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    minHeight: 86,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 0,
+  },
+  sessionBottomMetricValue: {
+    fontSize: 30,
+    lineHeight: 32,
+  },
+  sessionBottomMetricUnit: {
+    fontSize: 12,
+    lineHeight: 14,
+  },
+  sessionBottomMetricLabel: {
+    fontSize: 10,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  sessionBottomNextRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 4,
+    minHeight: 20,
+  },
+  sessionBottomNextLabel: {
+    fontSize: 10,
+    letterSpacing: 1.1,
+    textTransform: "uppercase",
+  },
+  sessionBottomNextName: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 16,
+  },
+  sessionBottomNextMeta: {
+    fontSize: 12,
   },
   restContent: {
     flex: 1,

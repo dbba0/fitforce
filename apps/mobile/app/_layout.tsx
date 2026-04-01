@@ -54,6 +54,13 @@ function RootLayoutNav() {
         }}
       />
       <Stack.Screen
+        name="session/completion"
+        options={{
+          headerShown: false,
+          presentation: "fullScreenModal",
+        }}
+      />
+      <Stack.Screen
         name="cardio/[id]"
         options={{
           headerShown: false,

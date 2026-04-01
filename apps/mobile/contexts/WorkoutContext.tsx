@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useRef,
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiRequest } from "@/lib/query-client";
+import { CustomProgram, getCustomPrograms } from "@/utils/customProgramStorage";
 
 export interface UserProfile {
   name: string;
@@ -87,6 +88,8 @@ interface WorkoutContextValue {
   weeklyProgress: number[];
   weeklyCardio: number[];
   weeklyChallenge: WeeklyChallenge;
+  customPrograms: CustomProgram[];
+  refreshCustomPrograms: () => Promise<void>;
   playerProgress: PlayerProgress;
   grantXpBatch: (input: { sessionCount?: number; prCount?: number; streakCount?: number }) => Promise<XpRewardSummary>;
   isLoaded: boolean;
@@ -236,12 +239,23 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
   const [goals, setGoals] = useState<Goal[]>(DEFAULT_GOALS);
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [customizations, setCustomizations] = useState<Record<string, ExerciseCustomization>>({});
+  const [customPrograms, setCustomPrograms] = useState<CustomProgram[]>([]);
   const [weeklyChallenge, setWeeklyChallenge] = useState<WeeklyChallenge>(() =>
     buildWeeklyChallenge([], getCurrentWeekStartIso(), 4)
   );
   const [totalXp, setTotalXp] = useState(0);
   const [isLoaded, setIsLoaded] = useState(false);
   const lastSyncedUserRef = useRef<string | null>(null);
+
+  const refreshCustomPrograms = useCallback(async () => {
+    try {
+      const savedPrograms = await getCustomPrograms();
+      setCustomPrograms(savedPrograms);
+    } catch (error) {
+      console.error("[WorkoutContext] Failed to sync custom programs", error);
+      setCustomPrograms([]);
+    }
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -288,11 +302,12 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
           setWeeklyChallenge(buildWeeklyChallenge(parsedSessions, currentWeekStart, 4));
         }
         setTotalXp(Number(xpRaw ?? 0) || 0);
+        await refreshCustomPrograms();
       } finally {
         setIsLoaded(true);
       }
     })();
-  }, []);
+  }, [refreshCustomPrograms]);
 
   useEffect(() => {
     if (!isLoaded || !isAuthenticated || !user) return;
@@ -591,10 +606,12 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     weeklyProgress,
     weeklyCardio,
     weeklyChallenge,
+    customPrograms,
+    refreshCustomPrograms,
     playerProgress,
     grantXpBatch,
     isLoaded,
-  }), [profile, goals, sessions, customizations, totalWorkouts, totalMinutes, totalCalories, totalCardioMinutes, totalCardioCalories, streakDays, weeklyProgress, weeklyCardio, weeklyChallenge, playerProgress, grantXpBatch, isLoaded]);
+  }), [profile, goals, sessions, customizations, totalWorkouts, totalMinutes, totalCalories, totalCardioMinutes, totalCardioCalories, streakDays, weeklyProgress, weeklyCardio, weeklyChallenge, customPrograms, refreshCustomPrograms, playerProgress, grantXpBatch, isLoaded]);
 
   return (
     <WorkoutContext.Provider value={value}>

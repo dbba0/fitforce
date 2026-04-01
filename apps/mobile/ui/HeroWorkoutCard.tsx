@@ -1,5 +1,5 @@
 import React, { useEffect } from "react";
-import { StyleProp, StyleSheet, View, ViewStyle } from "react-native";
+import { Pressable, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import Animated, {
   Easing,
   useAnimatedStyle,
@@ -165,7 +165,25 @@ export function HeroWorkoutCard({
         textStyle={styles.primaryBtnText}
       />
       {!displayEmptyState && secondaryCtaLabel ? (
-        <AppButton label={secondaryCtaLabel} variant="ghost" onPress={onSecondaryCtaPress} />
+        <Pressable
+          onPress={onSecondaryCtaPress}
+          style={({ pressed }) => [
+            styles.secondaryLinkWrap,
+            { opacity: pressed ? 0.75 : 1 },
+          ]}
+        >
+          <AppText
+            variant="bodySemiBold"
+            style={[
+              styles.secondaryLinkText,
+              { color: "#A1A1AA", fontFamily: "DMSans_600SemiBold" },
+            ]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {secondaryCtaLabel}
+          </AppText>
+        </Pressable>
       ) : null}
     </AppCard>
   );
@@ -221,7 +239,10 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     marginTop: 6,
-    height: 60,
+    height: 52,
+    width: "100%",
+    alignSelf: "stretch",
+    marginHorizontal: 0,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.24)",
     shadowColor: "#F55F2B",
@@ -231,8 +252,19 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   primaryBtnText: {
-    fontSize: 19,
+    fontSize: 16,
+    fontWeight: "700",
     letterSpacing: 0,
+  },
+  secondaryLinkWrap: {
+    marginTop: 8,
+    alignSelf: "center",
+    justifyContent: "center",
+  },
+  secondaryLinkText: {
+    fontSize: 13,
+    lineHeight: 16,
+    textAlign: "center",
   },
 });
 

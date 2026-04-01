@@ -357,10 +357,16 @@ export default function ProfileScreen() {
         <View
           style={{
             paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16,
-            paddingHorizontal: layout.screenPadding,
+            paddingHorizontal: Math.max(layout.screenPadding, 16),
           }}
         >
-          <Text style={[styles.headerTitle, { color: colors.text, fontFamily: typography.family.titleStrong }]}>{t("profile")}</Text>
+          <Text
+            style={[styles.headerTitle, { color: colors.text, fontFamily: typography.family.titleStrong }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {t("profile")}
+          </Text>
         </View>
 
         <View style={styles.guestWrap}>
@@ -387,7 +393,7 @@ export default function ProfileScreen() {
           contentContainerStyle={{
             paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 8,
             paddingBottom: Platform.OS === "web" ? 118 : insets.bottom + 96,
-            paddingHorizontal: layout.screenPadding,
+            paddingHorizontal: Math.max(layout.screenPadding, 16),
             gap: 12,
           }}
         >
@@ -416,11 +422,15 @@ export default function ProfileScreen() {
         contentContainerStyle={{
           paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
           paddingBottom: Platform.OS === "web" ? 118 : insets.bottom + 96,
-          paddingHorizontal: layout.screenPadding,
+          paddingHorizontal: Math.max(layout.screenPadding, 16),
         }}
       >
         <View style={styles.headerRow}>
-          <Text style={[styles.headerTitle, { color: colors.text, fontFamily: typography.family.titleStrong }]}>
+          <Text
+            style={[styles.headerTitle, { color: colors.text, fontFamily: typography.family.titleStrong }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {t("profile")}
           </Text>
         </View>
@@ -655,8 +665,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   headerTitle: {
-    fontSize: 38,
-    lineHeight: 40,
+    fontSize: 30,
+    lineHeight: 32,
     letterSpacing: -1,
   },
   profileSkeletonCard: {

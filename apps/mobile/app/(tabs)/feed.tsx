@@ -192,6 +192,7 @@ function GuestPrompt() {
         <Text
           style={[styles.title, { color: theme.text, fontFamily: Typography.titleStrong }]}
           numberOfLines={1}
+          ellipsizeMode="tail"
           adjustsFontSizeToFit
           minimumFontScale={0.82}
         >
@@ -397,6 +398,7 @@ export default function FeedScreen() {
         <Text
           style={[styles.title, { color: theme.text, fontFamily: Typography.titleStrong }]}
           numberOfLines={1}
+          ellipsizeMode="tail"
           adjustsFontSizeToFit
           minimumFontScale={0.82}
         >
@@ -552,8 +554,8 @@ const styles = StyleSheet.create({
   title: {
     flexShrink: 1,
     marginRight: 12,
-    fontSize: 40,
-    lineHeight: 42,
+    fontSize: 30,
+    lineHeight: 32,
     letterSpacing: -0.8,
   },
   postCard: {

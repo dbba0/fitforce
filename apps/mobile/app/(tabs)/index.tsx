@@ -64,8 +64,16 @@ export default function HomeScreen() {
   const { colors, layout, spacing } = useAppTheme();
   const insets = useSafeAreaInsets();
 
-  const displayName = user?.displayName || profile.name;
-  const firstName = displayName.trim().split(" ")[0] || displayName;
+  const authDisplayName =
+    typeof user?.displayName === "string" && user.displayName.trim().length > 0
+      ? user.displayName.trim()
+      : "";
+  const profileDisplayName =
+    typeof profile.name === "string" && profile.name.trim().length > 0
+      ? profile.name.trim()
+      : "";
+  const displayName = authDisplayName || profileDisplayName || "Athlète";
+  const firstName = displayName.split(/\s+/)[0] || "Athlète";
 
   const featuredProgram = useMemo(
     () => PROGRAMS.find((program) => program.id === "home_full_body_intermediate") ?? PROGRAMS[0] ?? null,
@@ -222,7 +230,7 @@ export default function HomeScreen() {
         contentContainerStyle={{
           paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
           paddingBottom: (Platform.OS === "web" ? 34 : insets.bottom) + 100,
-          paddingHorizontal: layout.screenPadding,
+          paddingHorizontal: Math.max(layout.screenPadding, 16),
           gap: spacing[2],
         }}
       >
@@ -247,7 +255,7 @@ export default function HomeScreen() {
       contentContainerStyle={{
         paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
         paddingBottom: (Platform.OS === "web" ? 34 : insets.bottom) + 100,
-        paddingHorizontal: layout.screenPadding,
+        paddingHorizontal: Math.max(layout.screenPadding, 16),
         gap: spacing[2],
       }}
     >

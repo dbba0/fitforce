@@ -59,7 +59,7 @@ export const semanticColors: { dark: AppColors; light: AppColors } = {
     border: colorPalette.neutral[400],
     text: colorPalette.neutral[900],
     textSecondary: "#A1A1AA",
-    textMuted: colorPalette.neutral[500],
+    textMuted: "#A1A1AA",
     accent: colorPalette.ember[500],
     accentDark: colorPalette.ember[700],
     accentLight: colorPalette.ember[400],

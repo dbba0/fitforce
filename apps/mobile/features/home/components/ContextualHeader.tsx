@@ -27,7 +27,18 @@ export function ContextualHeader({
         <AppText variant="labelTech" tone="accent">
           {greetingLabel}
         </AppText>
-        <AppText variant="display" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.84}>
+        <AppText
+          variant="display"
+          numberOfLines={1}
+          ellipsizeMode="tail"
+          style={[
+            styles.firstName,
+            {
+              color: "#FFFFFF",
+              fontFamily: typography.family.titleStrong,
+            },
+          ]}
+        >
           {firstName}
         </AppText>
         <AppText variant="bodyRegular" tone="secondary">
@@ -86,11 +97,18 @@ const styles = StyleSheet.create({
   leftCol: {
     flex: 1,
     minWidth: 0,
+    paddingRight: 12,
     gap: 6,
   },
   rightCol: {
     alignItems: "flex-end",
+    flexShrink: 0,
     gap: 10,
+  },
+  firstName: {
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: "700",
   },
   iconShell: {
     alignItems: "center",
