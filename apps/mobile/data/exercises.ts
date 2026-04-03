@@ -12,7 +12,11 @@ export interface ExerciseTranslation {
 
 export interface Exercise {
   id: string;
+  exerciseDbId?: string;
   youtubeId: string;
+  imageUrl?: string;
+  videoUrl?: string;
+  gifUrl?: string;
   imageColor: string;
   equipment: Equipment;
   muscles: MuscleGroup[];
@@ -30,9 +34,10 @@ export interface Exercise {
   };
 }
 
-export const EXERCISES: Exercise[] = [
+const EXERCISES_RAW: Exercise[] = [
   {
     id: "pushup",
+    exerciseDbId: "0557",
     youtubeId: "IODxDxX7oi4",
     imageColor: "#FF6B2C",
     equipment: "bodyweight",
@@ -165,6 +170,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "squat",
+    exerciseDbId: "0723",
     youtubeId: "ultWZbUMPL8",
     imageColor: "#4CAF7D",
     equipment: "bodyweight",
@@ -297,6 +303,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "plank",
+    exerciseDbId: "0573",
     youtubeId: "ASdvN_XEl_c",
     imageColor: "#6C63FF",
     equipment: "bodyweight",
@@ -429,6 +436,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "burpee",
+    exerciseDbId: "0080",
     youtubeId: "dZgVxmf6jkA",
     imageColor: "#FFB547",
     equipment: "bodyweight",
@@ -561,6 +569,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "pullup",
+    exerciseDbId: "0539",
     youtubeId: "eGo4IYlbE5g",
     imageColor: "#2196F3",
     equipment: "pullupBar",
@@ -693,6 +702,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "lunge",
+    exerciseDbId: "0297",
     youtubeId: "QOVaHwm-Q6U",
     imageColor: "#E91E8C",
     equipment: "bodyweight",
@@ -825,6 +835,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "mountain_climber",
+    exerciseDbId: "0360",
     youtubeId: "nmwgirgXLYM",
     imageColor: "#00BCD4",
     equipment: "bodyweight",
@@ -957,6 +968,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "deadlift",
+    exerciseDbId: "0168",
     youtubeId: "op9kVnSso6Q",
     imageColor: "#FF4D4D",
     equipment: "barbell",
@@ -1089,6 +1101,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "dumbbell_row",
+    exerciseDbId: "0652",
     youtubeId: "pYcpY20QaE8",
     imageColor: "#9C27B0",
     equipment: "dumbbell",
@@ -1221,6 +1234,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "shoulder_press",
+    exerciseDbId: "0526",
     youtubeId: "qEwKCR5JCog",
     imageColor: "#FF9800",
     equipment: "dumbbell",
@@ -1353,6 +1367,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "bench_press",
+    exerciseDbId: "0025",
     youtubeId: "rT7DgCr-3pg",
     imageColor: "#2196F3",
     equipment: "barbell",
@@ -1491,6 +1506,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "bicep_curl",
+    exerciseDbId: "0036",
     youtubeId: "ykJmrZ5v0Oo",
     imageColor: "#E91E8C",
     equipment: "dumbbell",
@@ -1624,6 +1640,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "tricep_extension",
+    exerciseDbId: "0764",
     youtubeId: "nRiJVZDpdL0",
     imageColor: "#9C27B0",
     equipment: "dumbbell",
@@ -1757,6 +1774,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "lat_pulldown",
+    exerciseDbId: "0290",
     youtubeId: "CAwf7n6Luuc",
     imageColor: "#009688",
     equipment: "machine",
@@ -1890,6 +1908,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "cable_row",
+    exerciseDbId: "0098",
     youtubeId: "GZbfZ033f74",
     imageColor: "#3F51B5",
     equipment: "machine",
@@ -2023,6 +2042,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "leg_press",
+    exerciseDbId: "0306",
     youtubeId: "IZxyjW7MPJQ",
     imageColor: "#FF9800",
     equipment: "machine",
@@ -2161,6 +2181,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "calf_raise",
+    exerciseDbId: "1369",
     youtubeId: "gwLzBJYoWlI",
     imageColor: "#00BCD4",
     equipment: "bodyweight",
@@ -2293,6 +2314,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "hip_thrust",
+    exerciseDbId: "0285",
     youtubeId: "SEdqd1n0cvg",
     imageColor: "#FF5722",
     equipment: "barbell",
@@ -2426,6 +2448,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "incline_dumbbell_press",
+    exerciseDbId: "0034",
     youtubeId: "8iPEnn-ltC8",
     imageColor: "#673AB7",
     equipment: "dumbbell",
@@ -2564,6 +2587,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "romanian_deadlift",
+    exerciseDbId: "0648",
     youtubeId: "JCXUYuzwNrM",
     imageColor: "#795548",
     equipment: "barbell",
@@ -2697,6 +2721,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "russian_twist",
+    exerciseDbId: "0664",
     youtubeId: "wkD8rjkodUI",
     imageColor: "#4CAF50",
     equipment: "bodyweight",
@@ -2829,6 +2854,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "jumping_jacks",
+    exerciseDbId: "0793",
     youtubeId: "iSSAk4XCsRA",
     imageColor: "#FF6B2C",
     equipment: "noEquipment",
@@ -2877,6 +2903,7 @@ export const EXERCISES: Exercise[] = [
   },
   {
     id: "high_knees",
+    exerciseDbId: "0280",
     youtubeId: "ZZZoCtnxbwI",
     imageColor: "#FF4D4D",
     equipment: "noEquipment",
@@ -2926,6 +2953,7 @@ export const EXERCISES: Exercise[] = [
   {
     id: "jump_rope_cardio",
     youtubeId: "u3zgHI8QnqE",
+    imageUrl: "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Rope_Jumping/0.jpg",
     imageColor: "#FFB547",
     equipment: "jumpRope",
     muscles: ["legs", "core"],
@@ -2974,6 +3002,7 @@ export const EXERCISES: Exercise[] = [
   {
     id: "box_jump_cardio",
     youtubeId: "52r_Ul5k03g",
+    imageUrl: "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Box_Jump_Multiple_Response/0.jpg",
     imageColor: "#9C27B0",
     equipment: "noEquipment",
     muscles: ["legs", "core"],
@@ -3022,6 +3051,7 @@ export const EXERCISES: Exercise[] = [
   {
     id: "lateral_shuffle",
     youtubeId: "d7GEbYHJBEE",
+    imageUrl: "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Side_to_Side_Box_Shuffle/0.jpg",
     imageColor: "#4CAF7D",
     equipment: "noEquipment",
     muscles: ["legs", "core"],
@@ -3070,6 +3100,7 @@ export const EXERCISES: Exercise[] = [
   {
     id: "skater_hop",
     youtubeId: "RP8eCi0BSHY",
+    imageUrl: "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Lateral_Bound/0.jpg",
     imageColor: "#E91E8C",
     equipment: "noEquipment",
     muscles: ["legs", "core"],
@@ -3118,6 +3149,7 @@ export const EXERCISES: Exercise[] = [
   {
     id: "treadmill_run",
     youtubeId: "MtbKvtWMgzY",
+    imageUrl: "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Running_Treadmill/0.jpg",
     imageColor: "#2196F3",
     equipment: "cardioMachine",
     muscles: ["legs", "core"],
@@ -3166,6 +3198,7 @@ export const EXERCISES: Exercise[] = [
   {
     id: "stationary_bike",
     youtubeId: "pBIeKIZ3-YQ",
+    imageUrl: "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Bicycling_Stationary/0.jpg",
     imageColor: "#00BCD4",
     equipment: "cardioMachine",
     muscles: ["legs", "core"],
@@ -3214,6 +3247,7 @@ export const EXERCISES: Exercise[] = [
   {
     id: "stair_climber",
     youtubeId: "VH5lxiL7d7Y",
+    imageUrl: "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Stairmaster/0.jpg",
     imageColor: "#FF9800",
     equipment: "cardioMachine",
     muscles: ["legs", "core"],
@@ -3262,6 +3296,7 @@ export const EXERCISES: Exercise[] = [
   {
     id: "rowing_machine",
     youtubeId: "H0r39AQBGX4",
+    imageUrl: "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Rowing_Stationary/0.jpg",
     imageColor: "#3F51B5",
     equipment: "cardioMachine",
     muscles: ["legs", "core", "arms", "back"],
@@ -3310,6 +3345,7 @@ export const EXERCISES: Exercise[] = [
   {
     id: "elliptical_trainer",
     youtubeId: "WFkl-kqe5ro",
+    imageUrl: "https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/Elliptical_Trainer/0.jpg",
     imageColor: "#009688",
     equipment: "cardioMachine",
     muscles: ["legs", "core", "arms"],
@@ -3356,6 +3392,12 @@ export const EXERCISES: Exercise[] = [
     },
   },
 ];
+
+export const EXERCISES: Exercise[] = EXERCISES_RAW.map((exercise) => ({
+  ...exercise,
+  imageUrl: exercise.imageUrl ?? exercise.gifUrl,
+  videoUrl: exercise.videoUrl ?? `https://www.youtube.com/watch?v=${exercise.youtubeId}`,
+}));
 
 export function getExerciseById(id: string): Exercise | undefined {
   return EXERCISES.find((e) => e.id === id);

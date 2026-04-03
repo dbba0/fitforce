@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Circle, Ellipse, G, Line, Path } from "react-native-svg";
 import type { MuscleGroup } from "@/data/exercises";
+import { Chip } from "@/components/ui";
+import { Typography } from "@/constants/typography";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { TranslationKey } from "@/lib/i18n";
 
-type ThemeShape = {
+export type ExerciseCoachTheme = {
   card: string;
   border: string;
   text: string;
@@ -14,25 +17,43 @@ type ThemeShape = {
 
 type Props = {
   muscles: MuscleGroup[];
+  primaryMuscles?: MuscleGroup[];
+  secondaryMuscles?: MuscleGroup[];
   title: string;
   subtitle: string;
-  theme: ThemeShape;
+  theme: ExerciseCoachTheme;
   highlightColor: string;
+  size?: number;
+  animated?: boolean;
 };
-
-function partColor(active: boolean, theme: ThemeShape, highlightColor: string) {
-  return active ? highlightColor : theme.textSecondary;
-}
 
 type MotionType = "upper" | "lower" | "core";
 
+const MUSCLE_TRANSLATION_KEY: Record<MuscleGroup, TranslationKey> = {
+  chest: "chest",
+  back: "backMuscle",
+  shoulders: "shoulders",
+  arms: "arms",
+  core: "core",
+  legs: "legs",
+};
+
+function partColor(active: boolean, theme: ExerciseCoachTheme, highlightColor: string) {
+  return active ? highlightColor : theme.textSecondary;
+}
+
 export default function ExerciseCoachFigure({
   muscles,
+  primaryMuscles,
+  secondaryMuscles,
   title,
   subtitle,
   theme,
   highlightColor,
+  size = 165,
+  animated = true,
 }: Props) {
+  const { t } = useLanguage();
   const active = useMemo(() => new Set(muscles), [muscles]);
   const chestColor = partColor(active.has("chest"), theme, highlightColor);
   const backColor = partColor(active.has("back"), theme, highlightColor);
@@ -40,6 +61,17 @@ export default function ExerciseCoachFigure({
   const armColor = partColor(active.has("arms"), theme, highlightColor);
   const coreColor = partColor(active.has("core"), theme, highlightColor);
   const legColor = partColor(active.has("legs"), theme, highlightColor);
+
+  const primary = useMemo(() => {
+    if (primaryMuscles?.length) return primaryMuscles;
+    return muscles.length > 0 ? [muscles[0]] : [];
+  }, [muscles, primaryMuscles]);
+
+  const secondary = useMemo(() => {
+    if (secondaryMuscles?.length) return secondaryMuscles;
+    const primarySet = new Set(primary);
+    return muscles.filter((muscle) => !primarySet.has(muscle));
+  }, [muscles, primary, secondaryMuscles]);
 
   const motionType: MotionType = useMemo(() => {
     if (active.has("legs")) return "lower";
@@ -49,40 +81,68 @@ export default function ExerciseCoachFigure({
 
   const [frame, setFrame] = useState(0);
   useEffect(() => {
+    if (!animated) {
+      setFrame(0);
+      return;
+    }
     const id = setInterval(() => setFrame((f) => (f + 1) % 3), 500);
     return () => clearInterval(id);
-  }, []);
+  }, [animated]);
 
   const pulse = frame === 1 ? 1 : 0;
   const bodyY = motionType === "lower" ? (frame === 1 ? 4 : 0) : 0;
   const armDelta = motionType === "upper" ? (frame === 1 ? -10 : frame === 2 ? 6 : 0) : 0;
   const legDelta = motionType === "lower" ? (frame === 1 ? 10 : frame === 2 ? -4 : 0) : 0;
   const corePulse = motionType === "core" ? (frame === 1 ? 1 : 0.4) : 0.4;
+  const figureHeight = Math.max(154, Math.round(size * 1.08));
 
   return (
-    <LinearGradient
-      colors={[`${highlightColor}22`, `${theme.card}`]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={[styles.wrapper, { borderColor: `${highlightColor}55` }]}
-    >
+    <View style={[styles.wrapper, { borderColor: `${highlightColor}55`, backgroundColor: theme.card }]}>
       <View style={styles.textCol}>
-        <Text style={[styles.title, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>{title}</Text>
-        <Text numberOfLines={3} style={[styles.subtitle, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
+        <Text style={[styles.title, { color: theme.text, fontFamily: Typography.title }]}>{title}</Text>
+        <Text numberOfLines={3} style={[styles.subtitle, { color: theme.textSecondary, fontFamily: Typography.bodyRegular }]}>
           {subtitle}
         </Text>
-        <Text style={[styles.motionHint, { color: theme.accent, fontFamily: "Outfit_600SemiBold" }]}>
-          {motionType === "lower" ? "Animation: squat/fente" : motionType === "core" ? "Animation: gainage/respiration" : "Animation: push/pull"}
-        </Text>
-        <View style={styles.badgesRow}>
-          {muscles.slice(0, 3).map((m) => (
-            <View key={m} style={[styles.badge, { backgroundColor: `${highlightColor}22`, borderColor: `${highlightColor}66` }]}>
-              <Text style={[styles.badgeText, { color: theme.text, fontFamily: "Outfit_500Medium" }]}>{m}</Text>
-            </View>
-          ))}
+
+        <View style={styles.chipsGroup}>
+          <Text style={[styles.chipsLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}>
+            {t("exerciseMediaPrimaryMuscles")}
+          </Text>
+          <View style={styles.chipsRow}>
+            {primary.map((muscle) => (
+              <Chip
+                key={`primary-${muscle}`}
+                label={t(MUSCLE_TRANSLATION_KEY[muscle])}
+                selected
+                selectedColor={highlightColor}
+                style={styles.chipPrimary}
+                textStyle={styles.chipText}
+              />
+            ))}
+          </View>
         </View>
+
+        {secondary.length > 0 ? (
+          <View style={styles.chipsGroup}>
+            <Text style={[styles.chipsLabel, { color: theme.textSecondary, fontFamily: Typography.labelTech }]}>
+              {t("exerciseMediaSecondaryMuscles")}
+            </Text>
+            <View style={styles.chipsRow}>
+              {secondary.map((muscle) => (
+                <Chip
+                  key={`secondary-${muscle}`}
+                  label={t(MUSCLE_TRANSLATION_KEY[muscle])}
+                  selected={false}
+                  style={[styles.chipSecondary, { borderColor: theme.border, backgroundColor: theme.card }]}
+                  textStyle={[styles.chipText, { color: theme.textSecondary }]}
+                />
+              ))}
+            </View>
+          </View>
+        ) : null}
       </View>
-      <Svg width={165} height={180} viewBox="0 0 165 180">
+
+      <Svg width={size} height={figureHeight} viewBox="0 0 165 180">
         <G opacity={0.96}>
           <Circle cx="82.5" cy={24 + bodyY} r="12" fill={theme.text} opacity={0.92} />
 
@@ -109,17 +169,17 @@ export default function ExerciseCoachFigure({
         <Path d={`M133 ${42 - armDelta * 0.1} L138 ${34 - armDelta * 0.1} L143 ${42 - armDelta * 0.1}`} stroke={theme.accent} strokeWidth="2.6" fill="none" />
         <Path d={`M133 ${124 + armDelta * 0.1} L138 ${132 + armDelta * 0.1} L143 ${124 + armDelta * 0.1}`} stroke={theme.accent} strokeWidth="2.6" fill="none" />
       </Svg>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: {
     marginTop: 12,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
@@ -128,33 +188,38 @@ const styles = StyleSheet.create({
   textCol: {
     flex: 1,
     paddingRight: 6,
+    gap: 8,
   },
   title: {
     fontSize: 16,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   subtitle: {
     fontSize: 13,
     lineHeight: 18,
   },
-  motionHint: {
-    marginTop: 6,
-    fontSize: 12,
-  },
-  badgesRow: {
-    marginTop: 8,
-    flexDirection: "row",
+  chipsGroup: {
     gap: 6,
+  },
+  chipsLabel: {
+    fontSize: 10,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+  },
+  chipsRow: {
+    flexDirection: "row",
     flexWrap: "wrap",
+    gap: 6,
   },
-  badge: {
-    borderWidth: 1,
-    borderRadius: 999,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  chipPrimary: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
-  badgeText: {
+  chipSecondary: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  chipText: {
     fontSize: 11,
-    textTransform: "capitalize",
   },
 });

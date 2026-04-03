@@ -17,11 +17,17 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.fitforce",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "FitForce a besoin de ta position pour enregistrer tes activités.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "FitForce a besoin de ta position pour enregistrer tes activités."
       }
     },
     "android": {
       "package": "com.fitforce",
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#0D0D0D",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -36,7 +42,8 @@
       "expo-router",
       "expo-font",
       "expo-web-browser",
-      "expo-localization"
+      "expo-localization",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -46,6 +53,12 @@
       "eas": {
         "projectId": "879c492c-a416-48c2-af21-fc81d91374ef"
       }
+    },
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/879c492c-a416-48c2-af21-fc81d91374ef"
     }
   }
 }

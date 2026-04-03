@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Crypto from "expo-crypto";
 import { apiRequest, setAuthToken, getAuthToken, queryClient } from "@/lib/query-client";
 
 interface AuthUser {
@@ -17,7 +18,8 @@ interface AuthUser {
 }
 
 interface LocalUserRecord extends AuthUser {
-  password: string;
+  passwordHash: string;
+  isHashed: true;
 }
 
 function normalizeUser(raw: any): AuthUser {
@@ -44,12 +46,79 @@ function isNetworkError(error: unknown): boolean {
 const LOCAL_USERS_KEY = "@fitforce_local_users";
 const LOCAL_SESSION_KEY = "@fitforce_local_session";
 
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+async function hashPassword(password: string): Promise<string> {
+  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, password);
+}
+
+function isHashedLocalUserRecord(raw: unknown): raw is LocalUserRecord {
+  if (!raw || typeof raw !== "object") return false;
+  const candidate = raw as Record<string, unknown>;
+  return (
+    candidate.isHashed === true &&
+    typeof candidate.passwordHash === "string" &&
+    candidate.passwordHash.length > 0 &&
+    typeof candidate.id === "string" &&
+    typeof candidate.email === "string"
+  );
+}
+
+function sanitizeHashedLocalUser(raw: LocalUserRecord): LocalUserRecord {
+  return {
+    ...normalizeUser(raw),
+    passwordHash: raw.passwordHash,
+    isHashed: true,
+  };
+}
+
+function toAuthUser(raw: LocalUserRecord): AuthUser {
+  return normalizeUser(raw);
+}
+
+async function migrateLegacyLocalUsers(): Promise<boolean> {
+  const raw = await AsyncStorage.getItem(LOCAL_USERS_KEY);
+  if (!raw) return false;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      await AsyncStorage.removeItem(LOCAL_USERS_KEY);
+      return false;
+    }
+
+    const secureUsers = parsed
+      .filter((entry): entry is LocalUserRecord => isHashedLocalUserRecord(entry))
+      .map(sanitizeHashedLocalUser);
+
+    const hasLegacyRecords = secureUsers.length !== parsed.length;
+
+    if (hasLegacyRecords) {
+      await saveLocalUsers(secureUsers);
+      const localSession = await getLocalSessionUser();
+      if (localSession?.id?.startsWith("local_")) {
+        await setLocalSessionUser(null);
+      }
+    }
+
+    return hasLegacyRecords;
+  } catch {
+    await AsyncStorage.removeItem(LOCAL_USERS_KEY);
+    return false;
+  }
+}
+
 async function getLocalUsers(): Promise<LocalUserRecord[]> {
   const raw = await AsyncStorage.getItem(LOCAL_USERS_KEY);
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry): entry is LocalUserRecord => isHashedLocalUserRecord(entry))
+      .map(sanitizeHashedLocalUser);
   } catch {
     return [];
   }
@@ -77,12 +146,14 @@ async function setLocalSessionUser(user: AuthUser | null): Promise<void> {
   await AsyncStorage.setItem(LOCAL_SESSION_KEY, JSON.stringify(user));
 }
 
-function createLocalUser(email: string, password: string, displayName: string): LocalUserRecord {
+async function createLocalUser(email: string, password: string, displayName: string): Promise<LocalUserRecord> {
   const now = new Date().toISOString();
+  const passwordHash = await hashPassword(password);
   return {
     id: `local_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
     email,
-    password,
+    passwordHash,
+    isHashed: true,
     displayName,
     age: 0,
     weight: 0,
@@ -132,6 +203,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     try {
+      await migrateLegacyLocalUsers();
+
       const token = await getAuthToken();
       if (token) {
         try {
@@ -182,14 +255,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: true };
     } catch (e: any) {
       if (isNetworkError(e)) {
+        await migrateLegacyLocalUsers();
         const users = await getLocalUsers();
+        const passwordHash = await hashPassword(password);
         const localUser = users.find(
-          (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+          (u) => normalizeEmail(u.email) === normalizeEmail(email) && u.passwordHash === passwordHash
         );
         if (!localUser) {
-          return { success: false, error: "Compte local introuvable. Inscris-toi d'abord." };
+          return { success: false, error: "Compte local introuvable. Reconnecte-toi." };
         }
-        const { password: _password, ...authUser } = localUser;
+        const authUser = toAuthUser(localUser);
         await setAuthToken(null);
         await setLocalSessionUser(authUser);
         setUser(authUser);
@@ -219,14 +294,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: true };
     } catch (e: any) {
       if (isNetworkError(e)) {
+        await migrateLegacyLocalUsers();
         const users = await getLocalUsers();
-        const exists = users.some((u) => u.email.toLowerCase() === email.toLowerCase());
+        const exists = users.some((u) => normalizeEmail(u.email) === normalizeEmail(email));
         if (exists) {
           return { success: false, error: "Cet email existe deja en local. Connecte-toi." };
         }
-        const localUser = createLocalUser(email, password, displayName);
+        const localUser = await createLocalUser(email, password, displayName);
         await saveLocalUsers([...users, localUser]);
-        const { password: _password, ...authUser } = localUser;
+        const authUser = toAuthUser(localUser);
         await setAuthToken(null);
         await setLocalSessionUser(authUser);
         setUser(authUser);
@@ -261,15 +337,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { success: true };
     } catch (e: any) {
       if (isNetworkError(e) && user?.id.startsWith("local_")) {
+        await migrateLegacyLocalUsers();
         const users = await getLocalUsers();
         const idx = users.findIndex((u) => u.id === user.id);
         if (idx === -1) {
           return { success: false, error: "Compte local introuvable" };
         }
-        const nextUser = { ...users[idx], ...data };
+        const nextUser: LocalUserRecord = {
+          ...users[idx],
+          ...data,
+          passwordHash: users[idx].passwordHash,
+          isHashed: true,
+        };
         users[idx] = nextUser;
         await saveLocalUsers(users);
-        const { password: _password, ...authUser } = nextUser;
+        const authUser = toAuthUser(nextUser);
         setUser(authUser);
         await setLocalSessionUser(authUser);
         return { success: true };

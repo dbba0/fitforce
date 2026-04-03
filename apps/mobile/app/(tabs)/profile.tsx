@@ -1,328 +1,836 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Platform,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
-  ScrollView,
-  Pressable,
-  Platform,
-  useColorScheme,
-  Modal,
-  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import * as Haptics from "expo-haptics";
-import Animated, { FadeInDown } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useWorkout, UserProfile } from "@/contexts/WorkoutContext";
+import { Goal, useWorkout, WorkoutSession } from "@/contexts/WorkoutContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { Colors } from "@/constants/colors";
+import {
+  Badge,
+  Card,
+  FeedbackToast,
+  GoalCard,
+  PrimaryButton,
+  SectionLabel,
+  SkeletonCard,
+  StateCard,
+  StatBlock,
+} from "@/components/ui";
+import { PROGRAMS } from "@/data/programs";
+import { TranslationKey } from "@/lib/i18n";
+import { getRecentPrTimeline, RecentPrRecord } from "@/utils/prStorage";
+import { useAppTheme } from "@/hooks";
+import { Typography } from "@/constants/typography";
+import {
+  AthleteIdentityCard,
+  ProfileLevelJourneyCard,
+  ProfileProgramSpotlight,
+} from "@/features/profile";
 
-const LEVELS = ["beginner", "intermediate", "advanced"] as const;
-const OBJECTIVES = ["massMuscle", "weightLoss", "endurance", "recomposition"] as const;
+function formatTemplate(template: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce(
+    (acc, [key, value]) => acc.replace(new RegExp(`\\{${key}\\}`, "g"), String(value)),
+    template
+  );
+}
 
-function InfoRow({ icon, label, value, color }: { icon: string; label: string; value: string | number; color: string }) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
+function formatCompactNumber(value: number): string {
+  if (value >= 1000) {
+    const compact = value / 1000;
+    const formatted = compact >= 10 ? compact.toFixed(0) : compact.toFixed(1);
+    return `${formatted}K`;
+  }
+  return String(value);
+}
+
+function getGoalProgress(goal: Goal): number {
+  if (goal.target === goal.current) return 100;
+  const raw =
+    goal.target > goal.current
+      ? (goal.current / goal.target) * 100
+      : (goal.target / Math.max(goal.current, 1)) * 100;
+  return Math.max(0, Math.min(100, Math.round(raw)));
+}
+
+function getRelativeLabel(dateIso: string, t: (key: TranslationKey) => string): string {
+  const date = new Date(dateIso);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const check = new Date(date);
+  check.setHours(0, 0, 0, 0);
+
+  if (check.getTime() === today.getTime()) return t("today");
+  if (check.getTime() === yesterday.getTime()) return t("yesterday");
+
+  return date.toLocaleDateString();
+}
+
+function getProgramTitle(programId: string, t: (key: TranslationKey) => string): string {
+  if (programId === "gym_push") return t("workoutsProgramPushPullLegs");
+  if (programId === "gym_upper_body") return t("workoutsProgramUpperLowerSplit");
+  if (programId === "gym_beginner_strength") return t("workoutsProgramFullBodyStrength");
+
+  const program = PROGRAMS.find((item) => item.id === programId);
+  if (!program) return t("workout");
+  return t(program.nameKey as TranslationKey);
+}
+
+function getRecordValueLabel(record: RecentPrRecord, t: (key: TranslationKey) => string): string {
+  if (record.weightKg > 0 && record.reps > 0) {
+    return formatTemplate(t("profileRecentRecordValuePattern"), {
+      weight: record.weightKg,
+      reps: record.reps,
+      score: record.score,
+    });
+  }
+  return formatTemplate(t("profileRecentRecordScoreOnlyPattern"), {
+    score: record.score,
+  });
+}
+
+function StatTile({
+  value,
+  label,
+  valueColor,
+  textMuted,
+}: {
+  value: string;
+  label: string;
+  valueColor: string;
+  textMuted: string;
+}) {
   return (
-    <View style={[styles.infoRow, { borderBottomColor: theme.border }]}>
-      <View style={[styles.infoIcon, { backgroundColor: color + "20" }]}>
-        <Ionicons name={icon as any} size={18} color={color} />
+    <StatBlock
+      value={value}
+      label={label}
+      color={valueColor}
+      variant="metric"
+      style={styles.statCard}
+      valueStyle={{ color: valueColor, fontSize: 36, lineHeight: 38, letterSpacing: -0.8 }}
+      labelStyle={{ color: textMuted, fontSize: 12, letterSpacing: 0.9 }}
+    />
+  );
+}
+
+function GoalTile({
+  goal,
+  title,
+  subtitle,
+  color,
+}: {
+  goal: Goal;
+  title: string;
+  subtitle: string;
+  color: string;
+}) {
+  return (
+    <Pressable
+      onPress={() => router.push("/goals")}
+      style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}
+    >
+      <GoalCard
+        goal={{
+          title,
+          current: goal.current,
+          target: goal.target,
+          unit: goal.unit,
+          progress: getGoalProgress(goal) / 100,
+          statusLabel: subtitle,
+        }}
+        color={color}
+        style={styles.goalCard}
+      />
+    </Pressable>
+  );
+}
+
+function RecentSessionTile({
+  session,
+  doneLabel,
+  t,
+  colors,
+}: {
+  session: WorkoutSession;
+  doneLabel: string;
+  t: (key: TranslationKey) => string;
+  colors: {
+    card: string;
+    accent: string;
+    text: string;
+    textSecondary: string;
+  };
+}) {
+  return (
+    <Card style={[styles.activityCard, { backgroundColor: colors.card, borderLeftColor: colors.accent, borderLeftWidth: 4 }]}>
+      <View style={styles.activityMain}>
+        <Text style={[styles.activityTitle, { color: colors.text, fontFamily: Typography.title }]} numberOfLines={1}>
+          {getProgramTitle(session.programId, t)}
+        </Text>
+        <Text style={[styles.activityMeta, { color: colors.textSecondary, fontFamily: Typography.body }]}>
+          {`${getRelativeLabel(session.date, t)} · ${session.durationMin} ${t("minutes")} · ${session.calories} ${t("kcal")}`}
+        </Text>
       </View>
-      <View style={styles.infoContent}>
-        <Text style={[styles.infoLabel, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>{label}</Text>
-        <Text style={[styles.infoValue, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>{value}</Text>
-      </View>
-    </View>
+
+      {session.completed ? (
+        <Badge label={doneLabel} variant="ember" style={styles.activityDoneBadge} />
+      ) : null}
+    </Card>
   );
 }
 
 export default function ProfileScreen() {
-  const { t } = useLanguage();
-  const { profile, updateProfile, totalWorkouts, totalMinutes, totalCalories, sessions } = useWorkout();
+  const { t, language } = useLanguage();
+  const { profile, goals, totalWorkouts, totalMinutes, totalCalories, streakDays, sessions, playerProgress, isLoaded } = useWorkout();
   const { user, isGuest, logout } = useAuth();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
-  const [showEdit, setShowEdit] = useState(false);
-  const [form, setForm] = useState<UserProfile>({ ...profile });
+  const { colors, layout, typography } = useAppTheme();
+
+  const displayName = user?.displayName || profile.name;
+  const [recentRecords, setRecentRecords] = useState<RecentPrRecord[]>([]);
+  const [isRecentRecordsLoading, setIsRecentRecordsLoading] = useState(true);
+  const [recordsError, setRecordsError] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastTone, setToastTone] = useState<"success" | "error">("success");
+
+  const loadRecentRecords = useCallback((showFeedback = false) => {
+    let active = true;
+    setIsRecentRecordsLoading(true);
+    setRecordsError(false);
+
+    getRecentPrTimeline(4)
+      .then((records) => {
+        if (!active) return;
+        setRecentRecords(records);
+        if (showFeedback) {
+          setToastTone("success");
+          setToastMessage(t("stateToastUpdated"));
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setRecentRecords([]);
+        setRecordsError(true);
+        if (showFeedback) {
+          setToastTone("error");
+          setToastMessage(t("stateToastRetryError"));
+        }
+      })
+      .finally(() => {
+        if (active) setIsRecentRecordsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [t]);
+
+  useFocusEffect(useCallback(() => loadRecentRecords(false), [loadRecentRecords]));
+
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(null), 1800);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
+
+  const memberSinceLabel = useMemo(() => {
+    const source = user?.createdAt ? new Date(user.createdAt) : new Date();
+    if (Number.isNaN(source.getTime())) return "";
+
+    const localeByLanguage: Record<string, string> = {
+      fr: "fr-FR",
+      en: "en-US",
+      es: "es-ES",
+      de: "de-DE",
+      ar: "ar-SA",
+    };
+
+    const locale = localeByLanguage[language] ?? "fr-FR";
+    const monthYear = new Intl.DateTimeFormat(locale, {
+      month: "short",
+      year: "numeric",
+    }).format(source);
+
+    return formatTemplate(t("profileMemberSincePattern"), { date: monthYear });
+  }, [language, t, user?.createdAt]);
+
+  const modeLabel = useMemo(() => {
+    const hasCardio = sessions.some((session) => session.type === "cardio");
+    const hasStrength = sessions.some((session) => session.type !== "cardio");
+    if (hasCardio && !hasStrength) return t("profileModeCardio");
+    return t("profileModeGym");
+  }, [sessions, t]);
+
+  const objectiveLabel = useMemo(
+    () => t(profile.objective as TranslationKey),
+    [profile.objective, t]
+  );
+
+  const topGoals = goals.slice(0, 2);
+  const recentSessions = sessions.slice(0, 3);
+
+  const latestCompletedSession = useMemo(
+    () => sessions.find((session) => session.completed) ?? null,
+    [sessions]
+  );
+
+  const latestProgram = useMemo(() => {
+    if (!latestCompletedSession) return null;
+    return PROGRAMS.find((item) => item.id === latestCompletedSession.programId) ?? null;
+  }, [latestCompletedSession]);
+
+  const activeProgramTitle = latestCompletedSession
+    ? getProgramTitle(latestCompletedSession.programId, t)
+    : t("profileActiveProgramEmptyTitle");
+
+  const activeProgramSubtitle = latestCompletedSession
+    ? formatTemplate(t("profileActiveProgramSummaryPattern"), {
+        date: getRelativeLabel(latestCompletedSession.date, t),
+        minutes: latestCompletedSession.durationMin,
+        kcal: latestCompletedSession.calories,
+      })
+    : t("profileActiveProgramEmptySubtitle");
+
+  const activeProgramDetails = latestProgram
+    ? formatTemplate(t("profileActiveProgramDetailsPattern"), {
+        level: t(latestProgram.difficulty as TranslationKey),
+        focus: t(latestProgram.category as TranslationKey),
+      })
+    : undefined;
+
+  const levelProgressLabel = formatTemplate(t("profileJourneyProgressPattern"), {
+    pct: Math.round(playerProgress.progressToNext * 100),
+  });
+
+  const levelSubtitle = playerProgress.nextLevelMinXp
+    ? formatTemplate(t("xpProgressSubtitle"), {
+        current: playerProgress.totalXp,
+        next: playerProgress.nextLevelMinXp,
+      })
+    : t("xpMaxLevel");
+
+  const openActiveProgram = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (!latestCompletedSession || !latestProgram) {
+      router.push("/workouts");
+      return;
+    }
+
+    if (latestCompletedSession.type === "cardio") {
+      router.push({ pathname: "/cardio/[id]", params: { id: latestProgram.id } });
+      return;
+    }
+
+    router.push({ pathname: "/session/[id]", params: { id: latestProgram.id } });
+  };
+
+  const openWorkouts = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push("/workouts");
+  };
 
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
 
+  const goalVisuals: Record<Goal["type"], { color: string }> = {
+    goalWeight: { color: colors.accent },
+    goalWorkoutsPerWeek: { color: "#2DD4A0" },
+    goalCalories: { color: "#F5C842" },
+    goalWaist: { color: "#5EA8FF" },
+  };
+
   if (isGuest) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
-        <View style={{ paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16, paddingHorizontal: 20, paddingBottom: 12 }}>
-          <Text style={[styles.profileName, { color: theme.text, fontFamily: "Outfit_800ExtraBold", fontSize: 32 }]}>
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
+        <View
+          style={{
+            paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16,
+            paddingHorizontal: Math.max(layout.screenPadding, 16),
+          }}
+        >
+          <Text
+            style={[styles.headerTitle, { color: colors.text, fontFamily: typography.family.titleStrong }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {t("profile")}
           </Text>
         </View>
-        <View style={styles.guestPromptWrap}>
-          <Ionicons name="lock-closed-outline" size={48} color={theme.textMuted} />
-          <Text style={[styles.guestPromptTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
+
+        <View style={styles.guestWrap}>
+          <Ionicons name="lock-closed-outline" size={48} color={colors.textMuted} />
+          <Text style={[styles.guestTitle, { color: colors.text, fontFamily: typography.family.title }]}>
             {t("loginToAccess")}
           </Text>
-          <Text style={[styles.guestPromptText, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
+          <Text style={[styles.guestSubtitle, { color: colors.textSecondary, fontFamily: typography.family.bodyRegular }]}>
             {t("guestModePrompt")}
           </Text>
-          <Pressable
-            onPress={() => logout()}
-            style={({ pressed }) => [styles.guestLoginBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.85 : 1 }]}
-          >
-            <Ionicons name="log-in-outline" size={18} color="#fff" />
-            <Text style={[styles.guestLoginBtnText, { fontFamily: "Outfit_700Bold" }]}>{t("login")}</Text>
-          </Pressable>
+
+          <PrimaryButton label={t("login")} onPress={() => logout()} style={styles.guestBtn} />
         </View>
       </View>
     );
   }
 
-  const handleSave = () => {
-    updateProfile(form);
-    setShowEdit(false);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
-
-  const displayName = user?.displayName || profile.name;
-  const initials = displayName
-    .split(" ")
-    .map((n: string) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  if (!isLoaded) {
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
+        <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{
+            paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 8,
+            paddingBottom: Platform.OS === "web" ? 118 : insets.bottom + 96,
+            paddingHorizontal: Math.max(layout.screenPadding, 16),
+            gap: 12,
+          }}
+        >
+          <SkeletonCard height={72} lines={2} />
+          <SkeletonCard height={172} lines={4} style={styles.profileSkeletonCard} />
+          <View style={styles.profileSkeletonStats}>
+            <SkeletonCard height={118} lines={3} style={styles.profileSkeletonStat} />
+            <SkeletonCard height={118} lines={3} style={styles.profileSkeletonStat} />
+          </View>
+          <View style={styles.profileSkeletonStats}>
+            <SkeletonCard height={118} lines={3} style={styles.profileSkeletonStat} />
+            <SkeletonCard height={118} lines={3} style={styles.profileSkeletonStat} />
+          </View>
+          <SkeletonCard height={168} lines={4} style={styles.profileSkeletonCard} />
+          <SkeletonCard height={154} lines={4} style={styles.profileSkeletonCard} />
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
-          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top,
-          paddingBottom: Platform.OS === "web" ? 34 + 84 : 100,
+          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
+          paddingBottom: Platform.OS === "web" ? 118 : insets.bottom + 96,
+          paddingHorizontal: Math.max(layout.screenPadding, 16),
         }}
       >
-        <LinearGradient
-          colors={["#FF6B2C", "#CC5520"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.heroSection}
-        >
-          <Pressable
-            onPress={() => router.push("/(tabs)/settings")}
-            style={({ pressed }) => [styles.gearBtn, { opacity: pressed ? 0.7 : 1 }]}
+        <View style={styles.headerRow}>
+          <Text
+            style={[styles.headerTitle, { color: colors.text, fontFamily: typography.family.titleStrong }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
           >
-            <Ionicons name="settings-outline" size={22} color="rgba(255,255,255,0.85)" />
-          </Pressable>
-          <View style={styles.avatarCircle}>
-            <Text style={[styles.avatarText, { fontFamily: "Outfit_800ExtraBold" }]}>{initials}</Text>
-          </View>
-          <Text style={[styles.profileName, { fontFamily: "Outfit_800ExtraBold" }]}>{displayName}</Text>
-          {user?.email ? (
-            <Text style={[styles.profileLevel, { fontFamily: "Outfit_400Regular" }]}>{user.email}</Text>
-          ) : null}
-          <Text style={[styles.profileLevel, { fontFamily: "Outfit_500Medium" }]}>{t(profile.level)}</Text>
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-              setForm({ ...profile });
-              setShowEdit(true);
-            }}
-            style={({ pressed }) => [styles.editBtn, { opacity: pressed ? 0.8 : 1 }]}
-          >
-            <Ionicons name="pencil" size={14} color="#FF6B2C" />
-            <Text style={[styles.editBtnText, { fontFamily: "Outfit_600SemiBold" }]}>{t("editProfile")}</Text>
-          </Pressable>
-        </LinearGradient>
-
-        <View style={styles.statsRow}>
-          {[
-            { value: totalWorkouts, label: t("totalSessions"), icon: "barbell-outline", color: "#FF6B2C" },
-            { value: totalMinutes, label: t("totalMinutes"), icon: "time-outline", color: "#4CAF7D" },
-            { value: totalCalories, label: t("caloriesBurned"), icon: "flame-outline", color: "#FFB547" },
-          ].map((stat, i) => (
-            <Animated.View key={i} entering={FadeInDown.delay(i * 60).duration(400)} style={[styles.statCard, { backgroundColor: theme.card }]}>
-              <Ionicons name={stat.icon as any} size={20} color={stat.color} />
-              <Text style={[styles.statValue, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>{stat.value}</Text>
-              <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>{stat.label}</Text>
-            </Animated.View>
-          ))}
+            {t("profile")}
+          </Text>
         </View>
 
-        <Animated.View entering={FadeInDown.delay(180).duration(400)} style={[styles.infoCard, { backgroundColor: theme.card }]}>
-          <Text style={[styles.cardTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>{t("myProfile")}</Text>
-          <InfoRow icon="person-outline" label={t("name")} value={profile.name} color="#FF6B2C" />
-          <InfoRow icon="calendar-outline" label={t("age")} value={`${profile.age} ${t("years")}`} color="#4CAF7D" />
-          <InfoRow icon="scale-outline" label={t("weight")} value={`${profile.weight} ${t("kg")}`} color="#FFB547" />
-          <InfoRow icon="resize-outline" label={t("height")} value={`${profile.height} ${t("cm")}`} color="#6C63FF" />
-          <InfoRow icon="trophy-outline" label={t("objective")} value={t(profile.objective)} color="#E91E8C" />
-        </Animated.View>
+        <AthleteIdentityCard
+          title={t("profileAthleteIdentity")}
+          name={displayName}
+          meta={`${t(profile.level)} · ${memberSinceLabel}`}
+          modeLabel={modeLabel}
+          objectiveLabel={objectiveLabel}
+          streakLabel={streakDays > 0 ? formatTemplate(t("profileStreakChipPattern"), { count: streakDays }) : undefined}
+        />
 
-        {sessions.length > 0 && (
-          <Animated.View entering={FadeInDown.delay(240).duration(400)} style={[styles.historyCard, { backgroundColor: theme.card }]}>
-            <Text style={[styles.cardTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>{t("workoutHistory")}</Text>
-            {sessions.slice(0, 5).map((session) => {
-              const date = new Date(session.date);
-              const today = new Date();
-              const isToday = date.toDateString() === today.toDateString();
-              const yesterday = new Date(today);
-              yesterday.setDate(yesterday.getDate() - 1);
-              const isYesterday = date.toDateString() === yesterday.toDateString();
-              const label = isToday ? t("today") : isYesterday ? t("yesterday") : date.toLocaleDateString();
+        <View style={styles.statsGrid}>
+          <StatTile
+            value={formatCompactNumber(totalWorkouts)}
+            label={t("totalSessions").toUpperCase()}
+            valueColor={colors.accent}
+            textMuted={colors.textMuted}
+          />
+          <StatTile
+            value={formatCompactNumber(totalMinutes)}
+            label={t("totalMinutes").toUpperCase()}
+            valueColor={colors.text}
+            textMuted={colors.textMuted}
+          />
+          <StatTile
+            value={formatCompactNumber(totalCalories)}
+            label={t("profileKcalBurnedLabel")}
+            valueColor={colors.text}
+            textMuted={colors.textMuted}
+          />
+          <StatTile
+            value={String(streakDays)}
+            label={t("profileDayStreakLabel")}
+            valueColor="#F5C842"
+            textMuted={colors.textMuted}
+          />
+        </View>
+
+        <ProfileProgramSpotlight
+          sectionTitle={t("profileActiveProgram")}
+          title={activeProgramTitle}
+          subtitle={activeProgramSubtitle}
+          details={activeProgramDetails}
+          primaryCtaLabel={latestCompletedSession ? t("continueWorkout") : t("browsePrograms")}
+          secondaryCtaLabel={t("browsePrograms")}
+          onPrimaryPress={openActiveProgram}
+          onSecondaryPress={openWorkouts}
+        />
+
+        <ProfileLevelJourneyCard
+          sectionTitle={t("profileJourney")}
+          levelName={t(playerProgress.levelNameKey)}
+          progress={playerProgress.progressToNext}
+          progressLabel={levelProgressLabel}
+          subtitle={levelSubtitle}
+        />
+
+        <SectionLabel
+          style={styles.recordsSectionLabel}
+          textStyle={styles.sectionLabel}
+          action={t("progressOpenAction")}
+          onAction={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push("../(secondary)/progress");
+          }}
+        >
+          {t("recentRecords")}
+        </SectionLabel>
+
+        <View style={styles.recordsList}>
+          {isRecentRecordsLoading ? (
+            <SkeletonCard height={120} lines={3} style={styles.recordsSkeletonCard} />
+          ) : recordsError ? (
+            <StateCard
+              variant="error"
+              title={t("stateErrorTitle")}
+              description={t("stateErrorDescription")}
+              actionLabel={t("retry")}
+              onActionPress={() => loadRecentRecords(true)}
+              style={styles.profileStateCard}
+            />
+          ) : recentRecords.length === 0 ? (
+            <StateCard
+              title={t("profileNoRecentRecordsTitle")}
+              description={t("profileNoRecentRecordsSubtitle")}
+              actionLabel={t("startWorkout")}
+              onActionPress={openWorkouts}
+              style={styles.profileStateCard}
+            />
+          ) : (
+            recentRecords.map((record) => (
+              <Card
+                key={record.id}
+                style={[styles.recordCard, { backgroundColor: colors.card, borderColor: colors.border }]}
+                borderLeftColor={colors.success}
+              >
+                <View style={styles.recordTop}>
+                  <Text style={[styles.recordExercise, { color: colors.text, fontFamily: Typography.title }]} numberOfLines={1}>
+                    {record.exerciseName}
+                  </Text>
+                  <Badge label={t("profileRecentRecordBadge")} variant="mint" />
+                </View>
+                <Text style={[styles.recordValue, { color: colors.success, fontFamily: Typography.bodyBold }]}>
+                  {getRecordValueLabel(record, t)}
+                </Text>
+                <Text style={[styles.recordDate, { color: colors.textSecondary, fontFamily: Typography.body }]}>
+                  {formatTemplate(t("profileRecentRecordDatePattern"), { date: getRelativeLabel(record.date, t) })}
+                </Text>
+              </Card>
+            ))
+          )}
+        </View>
+
+        <SectionLabel
+          style={styles.sectionHeader}
+          textStyle={styles.sectionLabel}
+          action={t("profileAddShort")}
+          onAction={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push("/goals");
+          }}
+        >
+          {t("myGoals")}
+        </SectionLabel>
+
+        <View style={styles.goalsList}>
+          {topGoals.length === 0 ? (
+            <StateCard
+              title={t("noGoals")}
+              description={t("profileNoGoalsCardSubtitle")}
+              actionLabel={t("addGoal")}
+              onActionPress={() => router.push("/goals")}
+              style={styles.profileStateCard}
+            />
+          ) : (
+            topGoals.map((goal) => {
+              const visual = goalVisuals[goal.type];
+              const subtitle =
+                goal.type === "goalWorkoutsPerWeek" || goal.type === "goalCalories"
+                  ? formatTemplate(t("profileGoalThisWeekPattern"), {
+                      current: goal.current,
+                      target: goal.target,
+                    })
+                  : formatTemplate(t("profileGoalCurrentTargetPattern"), {
+                      current: goal.current,
+                      target: goal.target,
+                      unit: goal.unit,
+                    });
 
               return (
-                <View key={session.id} style={[styles.historyRow, { borderBottomColor: theme.border }]}>
-                  <View style={[styles.historyIcon, { backgroundColor: theme.accent + "20" }]}>
-                    <Ionicons name="barbell-outline" size={16} color={theme.accent} />
-                  </View>
-                  <View style={styles.historyInfo}>
-                    <Text style={[styles.historyDate, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>{label}</Text>
-                    <Text style={[styles.historyMeta, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
-                      {session.durationMin} {t("minutes")} · {session.calories} {t("kcal")}
-                    </Text>
-                  </View>
-                  {session.completed && <Ionicons name="checkmark-circle" size={20} color={theme.success} />}
-                </View>
+                <GoalTile
+                  key={goal.id}
+                  goal={goal}
+                  title={t(goal.type)}
+                  subtitle={subtitle}
+                  color={visual.color}
+                />
               );
-            })}
-          </Animated.View>
-        )}
+            })
+          )}
+        </View>
 
-        {sessions.length === 0 && (
-          <Animated.View entering={FadeInDown.delay(240).duration(400)} style={styles.emptyHistory}>
-            <Ionicons name="barbell-outline" size={44} color={theme.textMuted} />
-            <Text style={[styles.emptyText, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>{t("noHistoryYet")}</Text>
-            <Text style={[styles.emptySubText, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>{t("startYourJourney")}</Text>
-          </Animated.View>
-        )}
+        <SectionLabel style={styles.recentSectionLabel} textStyle={styles.sectionLabel}>
+          {t("recentActivity")}
+        </SectionLabel>
+
+        <View style={styles.activityList}>
+          {recentSessions.length === 0 ? (
+            <StateCard
+              title={t("noHistoryYet")}
+              description={t("startYourJourney")}
+              actionLabel={t("startWorkout")}
+              onActionPress={openWorkouts}
+              style={styles.profileStateCard}
+            />
+          ) : (
+            recentSessions.map((session) => (
+              <RecentSessionTile
+                key={session.id}
+                session={session}
+                doneLabel={t("profileDoneBadge")}
+                t={t}
+                colors={colors}
+              />
+            ))
+          )}
+        </View>
+
+        <SectionLabel style={styles.settingsSectionLabel} textStyle={styles.sectionLabel}>
+          {t("profileSettingsFooterTitle")}
+        </SectionLabel>
+        <Pressable
+          onPress={() => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            router.push("/settings");
+          }}
+          style={({ pressed }) => [{ opacity: pressed ? 0.86 : 1 }]}
+        >
+          <Card style={[styles.settingsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.settingsIconWrap, { backgroundColor: colors.cardElevated, borderColor: colors.border }]}>
+              <Ionicons name="settings-outline" size={18} color={colors.textSecondary} />
+            </View>
+            <View style={styles.settingsMain}>
+              <Text style={[styles.settingsTitle, { color: colors.text, fontFamily: Typography.bodySemiBold }]}>
+                {t("settings")}
+              </Text>
+              <Text style={[styles.settingsSubtitle, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
+                {t("profileSettingsFooterSubtitle")}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </Card>
+        </Pressable>
       </ScrollView>
 
-      <Modal visible={showEdit} animationType="slide" transparent onRequestClose={() => setShowEdit(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setShowEdit(false)}>
-          <Pressable style={[styles.modalSheet, { backgroundColor: theme.card }]} onPress={() => {}}>
-            <View style={[styles.modalHandle, { backgroundColor: theme.border }]} />
-            <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>{t("editProfile")}</Text>
-
-              {([
-                { key: "name", label: t("name"), keyboardType: "default" },
-                { key: "age", label: t("age"), keyboardType: "numeric" },
-                { key: "weight", label: `${t("weight")} (kg)`, keyboardType: "numeric" },
-                { key: "height", label: `${t("height")} (cm)`, keyboardType: "numeric" },
-              ] as const).map((field) => (
-                <View key={field.key}>
-                  <Text style={[styles.fieldLabel, { color: theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>{field.label}</Text>
-                  <TextInput
-                    value={String(form[field.key])}
-                    onChangeText={(v) => setForm((prev) => ({ ...prev, [field.key]: field.keyboardType === "numeric" ? parseFloat(v) || 0 : v }))}
-                    keyboardType={field.keyboardType as any}
-                    style={[styles.input, { backgroundColor: theme.background, color: theme.text, borderColor: theme.border, fontFamily: "Outfit_400Regular" }]}
-                    placeholderTextColor={theme.textMuted}
-                  />
-                </View>
-              ))}
-
-              <Text style={[styles.fieldLabel, { color: theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>{t("level")}</Text>
-              <View style={styles.chipRow}>
-                {LEVELS.map((lv) => (
-                  <Pressable
-                    key={lv}
-                    onPress={() => setForm((p) => ({ ...p, level: lv }))}
-                    style={[styles.chip, { backgroundColor: form.level === lv ? theme.accent : theme.background, borderColor: form.level === lv ? theme.accent : theme.border }]}
-                  >
-                    <Text style={[styles.chipText, { color: form.level === lv ? "#fff" : theme.textSecondary, fontFamily: "Outfit_600SemiBold" }]}>{t(lv)}</Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <Text style={[styles.fieldLabel, { color: theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>{t("objective")}</Text>
-              <View style={styles.chipRow}>
-                {OBJECTIVES.map((obj) => (
-                  <Pressable
-                    key={obj}
-                    onPress={() => setForm((p) => ({ ...p, objective: obj }))}
-                    style={[styles.chip, { backgroundColor: form.objective === obj ? theme.accent : theme.background, borderColor: form.objective === obj ? theme.accent : theme.border }]}
-                  >
-                    <Text style={[styles.chipText, { color: form.objective === obj ? "#fff" : theme.textSecondary, fontFamily: "Outfit_600SemiBold" }]}>{t(obj)}</Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <Pressable
-                onPress={handleSave}
-                style={({ pressed }) => [styles.saveBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.85 : 1 }]}
-              >
-                <Text style={[styles.saveBtnText, { fontFamily: "Outfit_700Bold" }]}>{t("saveChanges")}</Text>
-              </Pressable>
-            </ScrollView>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <FeedbackToast
+        message={toastMessage}
+        tone={toastTone}
+        style={{
+          bottom: Platform.OS === "web" ? 24 : insets.bottom + 10,
+        }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  heroSection: { padding: 30, alignItems: "center", paddingBottom: 28, position: "relative" as const },
-  gearBtn: { position: "absolute" as const, top: 16, right: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.2)", alignItems: "center", justifyContent: "center" },
-  avatarCircle: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: "rgba(255,255,255,0.25)",
-    alignItems: "center", justifyContent: "center", marginBottom: 12,
+  root: { flex: 1 },
+  headerRow: {
+    marginBottom: 14,
   },
-  avatarText: { color: "#fff", fontSize: 28 },
-  profileName: { color: "#fff", fontSize: 24, marginBottom: 4 },
-  profileLevel: { color: "rgba(255,255,255,0.8)", fontSize: 14, marginBottom: 16 },
-  editBtn: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "#fff", paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
+  headerTitle: {
+    fontSize: 30,
+    lineHeight: 32,
+    letterSpacing: -1,
   },
-  editBtnText: { color: "#FF6B2C", fontSize: 14 },
-  statsRow: { flexDirection: "row", padding: 20, gap: 10 },
-  statCard: { flex: 1, borderRadius: 14, padding: 12, alignItems: "center", gap: 4 },
-  statValue: { fontSize: 18 },
-  statLabel: { fontSize: 10, textAlign: "center" },
-  infoCard: { marginHorizontal: 20, borderRadius: 16, padding: 16, marginBottom: 14 },
-  cardTitle: { fontSize: 17, marginBottom: 12 },
-  infoRow: {
-    flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+  profileSkeletonCard: {
+    borderRadius: 20,
   },
-  infoIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  infoContent: { flex: 1 },
-  infoLabel: { fontSize: 11, marginBottom: 1 },
-  infoValue: { fontSize: 14 },
-  historyCard: { marginHorizontal: 20, borderRadius: 16, padding: 16, marginBottom: 14 },
-  historyRow: {
-    flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+  profileSkeletonStats: {
+    flexDirection: "row",
+    gap: 12,
   },
-  historyIcon: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  historyInfo: { flex: 1 },
-  historyDate: { fontSize: 14 },
-  historyMeta: { fontSize: 12 },
-  emptyHistory: { margin: 20, alignItems: "center", gap: 10, padding: 30 },
-  emptyText: { fontSize: 16 },
-  emptySubText: { fontSize: 13, textAlign: "center" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  modalSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 40, maxHeight: "90%" },
-  modalHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 20 },
-  modalTitle: { fontSize: 22, marginBottom: 16 },
-  fieldLabel: { fontSize: 13, marginBottom: 8, marginTop: 12 },
-  input: { height: 48, borderRadius: 12, borderWidth: 1, paddingHorizontal: 14, fontSize: 16, marginBottom: 4 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1 },
-  chipText: { fontSize: 13 },
-  saveBtn: { height: 52, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 24, marginBottom: 8 },
-  saveBtnText: { color: "#fff", fontSize: 16 },
-  guestPromptWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 14 },
-  guestPromptTitle: { fontSize: 20, textAlign: "center" as const },
-  guestPromptText: { fontSize: 14, textAlign: "center" as const, lineHeight: 20 },
-  guestLoginBtn: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "center" as const, gap: 8, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32, marginTop: 8 },
-  guestLoginBtnText: { color: "#fff", fontSize: 16 },
+  profileSkeletonStat: {
+    flex: 1,
+    borderRadius: 18,
+  },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  statCard: {
+    width: "48%",
+    minHeight: 118,
+  },
+  recordsSectionLabel: {
+    marginTop: 18,
+    marginBottom: 10,
+  },
+  recordsList: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  recordsSkeletonCard: {
+    borderRadius: 20,
+  },
+  profileStateCard: {
+    borderRadius: 20,
+  },
+  recordCard: {
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 4,
+  },
+  recordTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  recordExercise: {
+    flex: 1,
+    fontSize: 16,
+  },
+  recordValue: {
+    fontSize: 14,
+  },
+  recordDate: {
+    fontSize: 12,
+  },
+  sectionHeader: {
+    marginTop: 14,
+    marginBottom: 10,
+  },
+  sectionLabel: {
+    fontSize: 10,
+    letterSpacing: 1.2,
+  },
+  goalsList: {
+    gap: 12,
+    marginBottom: 12,
+  },
+  goalCard: {
+    borderRadius: 20,
+  },
+  recentSectionLabel: { marginTop: 14 },
+  activityList: {
+    gap: 10,
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  activityCard: {
+    borderRadius: 22,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  activityMain: {
+    flex: 1,
+    gap: 4,
+  },
+  activityTitle: {
+    fontSize: 17,
+  },
+  activityMeta: {
+    fontSize: 13,
+  },
+  activityDoneBadge: {
+    minHeight: 26,
+    paddingHorizontal: 12,
+  },
+  emptyCard: {
+    borderRadius: 20,
+    padding: 14,
+    gap: 4,
+  },
+  emptyTitle: {
+    fontSize: 16,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+  },
+  settingsSectionLabel: {
+    marginTop: 18,
+    marginBottom: 10,
+  },
+  settingsCard: {
+    borderRadius: 20,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  settingsIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingsMain: {
+    flex: 1,
+    gap: 2,
+  },
+  settingsTitle: {
+    fontSize: 14,
+  },
+  settingsSubtitle: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  guestWrap: {
+    flex: 1,
+    paddingHorizontal: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+  },
+  guestTitle: {
+    fontSize: 22,
+    textAlign: "center",
+  },
+  guestSubtitle: {
+    fontSize: 15,
+    textAlign: "center",
+    lineHeight: 21,
+  },
+  guestBtn: {
+    marginTop: 10,
+    width: "100%",
+    maxWidth: 280,
+  },
 });

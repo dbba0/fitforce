@@ -1,475 +1,608 @@
-import React, { useState, useCallback } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  Animated,
+  Easing,
+  FlatList,
+  Platform,
+  Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   View,
-  FlatList,
-  Pressable,
-  TextInput,
-  Modal,
-  Platform,
-  useColorScheme,
-  RefreshControl,
-  Keyboard,
-  TouchableWithoutFeedback,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
-import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQuery } from "@tanstack/react-query";
+import * as Haptics from "expo-haptics";
 import { Ionicons } from "@expo/vector-icons";
-import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiRequest, queryClient } from "@/lib/query-client";
-import { Colors } from "@/constants/colors";
+import { useAppTheme } from "@/hooks";
+import { apiRequest } from "@/lib/query-client";
+import { Avatar, Badge, FeedbackToast, PrimaryButton, SectionLabel } from "@/components/ui";
+import { Typography } from "@/constants/typography";
 
-type PostType = "workout" | "achievement" | "progress" | "update";
+type ActivityType = "run" | "ride" | "walk" | "workout";
 
-const POST_TYPE_ICONS: Record<PostType, keyof typeof Ionicons.glyphMap> = {
-  workout: "barbell-outline",
-  achievement: "trophy-outline",
-  progress: "trending-up-outline",
-  update: "chatbubble-outline",
+type ActivityUser = {
+  id?: string;
+  displayName?: string;
+  avatarUrl?: string | null;
 };
 
-const POST_TYPE_COLORS: Record<PostType, string> = {
-  workout: "#FF6B2C",
-  achievement: "#FFD700",
-  progress: "#4CAF50",
-  update: "#2196F3",
+type FeedActivity = {
+  id: string;
+  type: ActivityType;
+  title: string;
+  startedAt?: string | null;
+  durationSeconds?: number;
+  distanceMeters?: number;
+  avgPaceSecPerKm?: number;
+  kudosCount?: number;
+  likedByMe?: boolean;
+  user?: ActivityUser | null;
 };
 
-function timeAgo(dateStr: string, t: (k: any) => string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diffMin = Math.floor((now - then) / 60000);
-  if (diffMin < 1) return t("justNow");
-  if (diffMin < 60) return `${diffMin}m`;
-  const diffH = Math.floor(diffMin / 60);
-  if (diffH < 24) return `${diffH}h`;
-  const diffD = Math.floor(diffH / 24);
-  if (diffD < 7) return `${diffD}d`;
-  return `${Math.floor(diffD / 7)}w`;
+type FeedResponse = {
+  activities: FeedActivity[];
+};
+
+type ActivityOverride = {
+  likedByMe: boolean;
+  kudosCount: number;
+};
+
+const DATA_SURFACE = "#1A1A1A";
+
+function getInitials(name: string): string {
+  return (name || "?")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
-function PostCard({ post, t, theme, language }: { post: any; t: any; theme: any; language: string }) {
-  const { user } = useAuth();
-  const isOwn = user?.id === post.author?.id;
+function formatDistance(meters: number): string {
+  if (meters <= 0) return "0.00 km";
+  return `${(meters / 1000).toFixed(2)} km`;
+}
 
-  const likeMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/posts/${post.id}/like`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/feed"] });
-    },
-  });
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0 min";
+  const total = Math.floor(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}min`;
+  return `${Math.max(1, minutes)} min`;
+}
 
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("DELETE", `/api/posts/${post.id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/feed"] });
-    },
-  });
+function formatPace(secondsPerKm: number | undefined): string {
+  if (!secondsPerKm || !Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return "-- /km";
+  const minutes = Math.floor(secondsPerKm / 60);
+  const seconds = Math.floor(secondsPerKm % 60);
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")} /km`;
+}
 
-  const postType = (post.type || "update") as PostType;
-  const typeColor = POST_TYPE_COLORS[postType] || "#2196F3";
-  const typeIcon = POST_TYPE_ICONS[postType] || "chatbubble-outline";
+function formatDate(dateIso: string | undefined | null, todayLabel: string, yesterdayLabel: string): string {
+  if (!dateIso) return "-";
+  const date = new Date(dateIso);
+  if (Number.isNaN(date.getTime())) return "-";
 
-  const initials = (post.author?.displayName || "?")
-    .split(" ")
-    .map((w: string) => w[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (target.getTime() === today.getTime()) return todayLabel;
+  if (target.getTime() === yesterday.getTime()) return yesterdayLabel;
+  return new Intl.DateTimeFormat(undefined, { day: "2-digit", month: "short" }).format(date);
+}
+
+function PulseSkeletons() {
+  const opacity = React.useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.7,
+          duration: 800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [opacity]);
 
   return (
-    <View style={[styles.postCard, { backgroundColor: theme.card }]}>
-      <View style={styles.postHeader}>
-        <Pressable
-          onPress={() => {
-            if (post.author?.id) {
-              router.push({ pathname: "/user/[id]", params: { id: post.author.id } });
-            }
-          }}
-          style={styles.postAuthorRow}
-        >
-          <LinearGradient
-            colors={[typeColor, typeColor + "AA"]}
-            style={styles.avatar}
-          >
-            <Text style={[styles.avatarText, { fontFamily: "Outfit_700Bold" }]}>{initials}</Text>
-          </LinearGradient>
-          <View style={styles.postAuthorInfo}>
-            <Text style={[styles.postAuthorName, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>
-              {post.author?.displayName || "Unknown"}
-            </Text>
-            <View style={styles.postMetaRow}>
-              <View style={[styles.typeBadge, { backgroundColor: typeColor + "20" }]}>
-                <Ionicons name={typeIcon} size={10} color={typeColor} />
-                <Text style={[styles.typeBadgeText, { color: typeColor, fontFamily: "Outfit_500Medium" }]}>
-                  {t(postType)}
-                </Text>
-              </View>
-              <Text style={[styles.postTime, { color: theme.textMuted, fontFamily: "Outfit_400Regular" }]}>
-                {timeAgo(post.createdAt, t)}
-              </Text>
-            </View>
-          </View>
-        </Pressable>
-        {isOwn && (
-          <Pressable
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              deleteMutation.mutate();
-            }}
-            style={styles.deleteBtn}
-          >
-            <Ionicons name="trash-outline" size={16} color={theme.textMuted} />
-          </Pressable>
-        )}
-      </View>
-
-      <Text style={[styles.postContent, { color: theme.text, fontFamily: "Outfit_400Regular" }]}>
-        {post.content}
-      </Text>
-
-      {post.workoutData && (
-        <View style={[styles.workoutDataCard, { backgroundColor: theme.border }]}>
-          <View style={styles.workoutDataRow}>
-            <Ionicons name="time-outline" size={14} color={theme.accent} />
-            <Text style={[styles.workoutDataText, { color: theme.text, fontFamily: "Outfit_500Medium" }]}>
-              {post.workoutData.durationMin} {t("minutes")}
-            </Text>
-          </View>
-          <View style={styles.workoutDataRow}>
-            <Ionicons name="flame-outline" size={14} color={theme.accent} />
-            <Text style={[styles.workoutDataText, { color: theme.text, fontFamily: "Outfit_500Medium" }]}>
-              {post.workoutData.calories} {t("kcal")}
-            </Text>
-          </View>
-          {post.workoutData.type && (
-            <View style={styles.workoutDataRow}>
-              <Ionicons name="barbell-outline" size={14} color={theme.accent} />
-              <Text style={[styles.workoutDataText, { color: theme.text, fontFamily: "Outfit_500Medium" }]}>
-                {post.workoutData.type === "cardio" ? t("cardio") : t("strength")}
-              </Text>
-            </View>
-          )}
-        </View>
-      )}
-
-      <View style={styles.postActions}>
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            likeMutation.mutate();
-          }}
-          style={styles.likeBtn}
-        >
-          <Ionicons
-            name={post.likedByMe ? "heart" : "heart-outline"}
-            size={20}
-            color={post.likedByMe ? "#FF4444" : theme.textMuted}
-          />
-          <Text style={[styles.likeCount, {
-            color: post.likedByMe ? "#FF4444" : theme.textMuted,
-            fontFamily: "Outfit_500Medium",
-          }]}>
-            {post.likeCount || 0}
-          </Text>
-        </Pressable>
-      </View>
-    </View>
+    <Animated.View style={[styles.skeletonWrap, { opacity }]}>
+      <View style={styles.skeletonCard} />
+      <View style={styles.skeletonCard} />
+      <View style={styles.skeletonCard} />
+    </Animated.View>
   );
 }
 
-function GuestPrompt({ t, theme, insets }: { t: any; theme: any; insets: any }) {
+function GuestPrompt() {
+  const { t } = useLanguage();
   const { logout } = useAuth();
+  const { colors } = useAppTheme();
+  const insets = useSafeAreaInsets();
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.header, { paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16 }]}>
-        <Text style={[styles.title, { color: theme.text, fontFamily: "Outfit_800ExtraBold" }]}>
-          {t("feed")}
-        </Text>
-      </View>
-      <View style={styles.guestPromptWrap}>
-        <Ionicons name="lock-closed-outline" size={48} color={theme.textMuted} />
-        <Text style={[styles.guestPromptTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <View
+        style={[
+          styles.guestContent,
+          { paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16 },
+        ]}
+      >
+        <View style={[styles.guestIconWrap, { backgroundColor: DATA_SURFACE, borderColor: colors.border }]}>
+          <Ionicons name="lock-closed-outline" size={28} color={colors.textMuted} />
+        </View>
+        <Text style={[styles.guestTitle, { color: colors.text, fontFamily: Typography.titleStrong }]}>
           {t("loginToAccess")}
         </Text>
-        <Text style={[styles.guestPromptText, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
+        <Text style={[styles.guestBody, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
           {t("guestModePrompt")}
         </Text>
-        <Pressable
-          onPress={() => logout()}
-          style={({ pressed }) => [styles.guestLoginBtn, { backgroundColor: theme.accent, opacity: pressed ? 0.85 : 1 }]}
-        >
-          <Ionicons name="log-in-outline" size={18} color="#fff" />
-          <Text style={[styles.guestLoginBtnText, { fontFamily: "Outfit_700Bold" }]}>{t("login")}</Text>
-        </Pressable>
+        <PrimaryButton label={t("login")} onPress={() => logout()} style={styles.guestButton} />
       </View>
     </View>
   );
 }
 
 export default function FeedScreen() {
-  const { t, language } = useLanguage();
+  const { t } = useLanguage();
   const { isGuest } = useAuth();
+  const { colors, layout } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [postContent, setPostContent] = useState("");
-  const [postType, setPostType] = useState<PostType>("update");
+  const [optimisticById, setOptimisticById] = useState<Record<string, ActivityOverride>>({});
+  const [pendingById, setPendingById] = useState<Record<string, boolean>>({});
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const { data, isLoading, refetch } = useQuery<{ posts: any[] }>({
-    queryKey: ["/api/feed"],
+  const { data, isLoading, isRefetching, refetch } = useQuery<FeedResponse>({
+    queryKey: ["/api/activities/feed"],
+    enabled: !isGuest,
   });
 
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/posts", {
-        type: postType,
-        content: postContent,
-      });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/feed"] });
-      setShowCreateModal(false);
-      setPostContent("");
-      setPostType("update");
-    },
-  });
+  const activities = useMemo(() => {
+    const base = data?.activities ?? [];
+    return base.map((activity) => {
+      const override = optimisticById[activity.id];
+      if (!override) return activity;
+      return {
+        ...activity,
+        likedByMe: override.likedByMe,
+        kudosCount: override.kudosCount,
+      };
+    });
+  }, [data?.activities, optimisticById]);
 
-  const posts = data?.posts || [];
+  useEffect(() => {
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(null), 1800);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
 
-  const renderPost = useCallback(({ item, index }: { item: any; index: number }) => (
-    <PostCard post={item} t={t} theme={theme} language={language} />
-  ), [t, theme, language]);
+  const refreshFeed = async () => {
+    setIsManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setIsManualRefreshing(false);
+    }
+  };
+
+  const handleToggleKudos = async (activity: FeedActivity) => {
+    if (pendingById[activity.id]) return;
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const previousLiked = !!activity.likedByMe;
+    const previousCount = activity.kudosCount ?? 0;
+
+    setPendingById((prev) => ({ ...prev, [activity.id]: true }));
+    setOptimisticById((prev) => ({
+      ...prev,
+      [activity.id]: {
+        likedByMe: !previousLiked,
+        kudosCount: Math.max(0, previousCount + (previousLiked ? -1 : 1)),
+      },
+    }));
+
+    try {
+      const res = await apiRequest("POST", `/api/activities/${activity.id}/kudos`);
+      const payload = await res.json();
+      const updated = payload?.activity as FeedActivity | undefined;
+      setOptimisticById((prev) => ({
+        ...prev,
+        [activity.id]: {
+          likedByMe: !!updated?.likedByMe,
+          kudosCount: Number(updated?.kudosCount ?? 0),
+        },
+      }));
+    } catch (error) {
+      console.error("[Feed] Impossible de toggler le kudos", error);
+      setOptimisticById((prev) => ({
+        ...prev,
+        [activity.id]: {
+          likedByMe: previousLiked,
+          kudosCount: previousCount,
+        },
+      }));
+      setToastMessage(t("activityKudosToggleError"));
+    } finally {
+      setPendingById((prev) => ({ ...prev, [activity.id]: false }));
+    }
+  };
 
   if (isGuest) {
-    return <GuestPrompt t={t} theme={theme} insets={insets} />;
+    return <GuestPrompt />;
   }
 
-  const renderEmpty = () => (
-    <View style={styles.emptyWrap}>
-      <Ionicons name="chatbubbles-outline" size={48} color={theme.textMuted} />
-      <Text style={[styles.emptyTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
-        {t("noPostsYet")}
-      </Text>
-      <Text style={[styles.emptyText, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
-        {t("shareYourJourney")}
-      </Text>
-    </View>
-  );
+  const refreshing = isManualRefreshing || (!isLoading && isRefetching);
+  const showSkeleton = isLoading && activities.length === 0;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <View style={[styles.header, { paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16 }]}>
-        <Text style={[styles.title, { color: theme.text, fontFamily: "Outfit_800ExtraBold" }]}>
-          {t("feed")}
-        </Text>
-        <Pressable
-          onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-            setShowCreateModal(true);
-          }}
-          style={[styles.newPostBtn, { backgroundColor: theme.accent }]}
-        >
-          <Ionicons name="add" size={20} color="#fff" />
-        </Pressable>
-      </View>
-
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <FlatList
-        data={posts}
-        renderItem={renderPost}
+        data={activities}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingBottom: Platform.OS === "web" ? 34 + 84 : 100,
-          flexGrow: posts.length === 0 ? 1 : undefined,
+          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
+          paddingBottom: (Platform.OS === "web" ? 34 : insets.bottom) + 104,
+          paddingHorizontal: Math.max(layout.screenPadding, 16),
+          gap: 12,
         }}
-        ListEmptyComponent={isLoading ? null : renderEmpty}
         refreshControl={
           <RefreshControl
-            refreshing={isLoading}
-            onRefresh={() => refetch()}
-            tintColor={theme.accent}
+            refreshing={refreshing}
+            onRefresh={refreshFeed}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+            progressBackgroundColor={DATA_SURFACE}
           />
         }
-        showsVerticalScrollIndicator={false}
-        ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
-      />
+        ListHeaderComponent={
+          <View style={styles.headerWrap}>
+            <SectionLabel>{t("activityFeedSectionLabel")}</SectionLabel>
+            <Text style={[styles.title, { color: colors.text, fontFamily: Typography.titleStrong }]}>
+              {t("activityFeedTitle")}
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
+              {t("activityFeedSubtitle")}
+            </Text>
+          </View>
+        }
+        renderItem={({ item }) => {
+          const authorName = item.user?.displayName || t("activityAnonymousAthlete");
+          const dateLabel = formatDate(item.startedAt, t("today"), t("yesterday"));
+          const typeVariant =
+            item.type === "run"
+              ? "ember"
+              : item.type === "ride"
+                ? "sky"
+                : item.type === "walk"
+                  ? "mint"
+                  : "gold";
 
-      <Modal
-        visible={showCreateModal}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowCreateModal(false)}
-      >
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior="padding"
-          keyboardVerticalOffset={0}
-        >
-          <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
-            <View style={styles.modalOverlay}>
-              <View style={[styles.modalContent, { backgroundColor: theme.card, paddingBottom: insets.bottom + 20 }]}>
-                <View style={styles.modalHeader}>
-                  <Text style={[styles.modalTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
-                    {t("newPost")}
-                  </Text>
-                  <Pressable onPress={() => setShowCreateModal(false)}>
-                    <Ionicons name="close" size={24} color={theme.textSecondary} />
-                  </Pressable>
+          const typeLabel =
+            item.type === "run"
+              ? t("activityTypeRun")
+              : item.type === "ride"
+                ? t("activityTypeRide")
+                : item.type === "walk"
+                  ? t("activityTypeWalk")
+                  : t("activityTypeWorkout");
+
+          return (
+            <Pressable
+              onPress={() => {
+                router.push(`/activity/${item.id}` as any);
+              }}
+              style={({ pressed }) => [{ opacity: pressed ? 0.93 : 1 }]}
+            >
+              <View style={[styles.card, { backgroundColor: DATA_SURFACE, borderColor: colors.border }]}>
+                <View style={styles.cardHeaderRow}>
+                  <View style={styles.authorBlock}>
+                    <Avatar
+                      name={authorName}
+                      initials={getInitials(authorName)}
+                      imageUri={item.user?.avatarUrl ?? undefined}
+                      size={42}
+                      mode="tint"
+                      color={colors.accent}
+                    />
+                    <View style={styles.authorTextWrap}>
+                      <Text
+                        style={[styles.authorName, { color: colors.text, fontFamily: Typography.title }]}
+                        numberOfLines={1}
+                      >
+                        {authorName}
+                      </Text>
+                      <Text
+                        style={[styles.authorMeta, { color: colors.textMuted, fontFamily: Typography.bodyRegular }]}
+                      >
+                        {dateLabel}
+                      </Text>
+                    </View>
+                  </View>
+                  <Badge label={typeLabel} variant={typeVariant} />
                 </View>
 
-                <View style={styles.typeSelector}>
-                  {(["update", "workout", "achievement", "progress"] as PostType[]).map((type) => (
-                    <Pressable
-                      key={type}
-                      onPress={() => {
-                        setPostType(type);
-                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                      }}
+                <Text style={[styles.activityTitle, { color: colors.text, fontFamily: Typography.titleStrong }]}>
+                  {item.title}
+                </Text>
+
+                <View style={[styles.metricsRow, { backgroundColor: DATA_SURFACE, borderColor: colors.border }]}>
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricValue, { color: colors.text, fontFamily: Typography.title }]}>
+                      {formatDistance(item.distanceMeters ?? 0)}
+                    </Text>
+                    <Text
+                      style={[styles.metricLabel, { color: colors.textMuted, fontFamily: Typography.labelTech }]}
+                    >
+                      {t("activityMetricDistance")}
+                    </Text>
+                  </View>
+
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricValue, { color: colors.text, fontFamily: Typography.title }]}>
+                      {formatDuration(item.durationSeconds ?? 0)}
+                    </Text>
+                    <Text
+                      style={[styles.metricLabel, { color: colors.textMuted, fontFamily: Typography.labelTech }]}
+                    >
+                      {t("activityMetricDuration")}
+                    </Text>
+                  </View>
+
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricValue, { color: colors.text, fontFamily: Typography.title }]}>
+                      {formatPace(item.avgPaceSecPerKm)}
+                    </Text>
+                    <Text
+                      style={[styles.metricLabel, { color: colors.textMuted, fontFamily: Typography.labelTech }]}
+                    >
+                      {t("activityMetricPace")}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.kudosRow}>
+                  <Pressable
+                    onPress={(event) => {
+                      event.stopPropagation?.();
+                      void handleToggleKudos(item);
+                    }}
+                    disabled={pendingById[item.id]}
+                    style={({ pressed }) => [
+                      styles.kudosButton,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: item.likedByMe ? `${colors.accent}22` : DATA_SURFACE,
+                        opacity: pressed || pendingById[item.id] ? 0.8 : 1,
+                      },
+                    ]}
+                  >
+                    <Text
                       style={[
-                        styles.typeChip,
+                        styles.kudosText,
                         {
-                          backgroundColor: postType === type ? POST_TYPE_COLORS[type] + "20" : theme.border,
-                          borderColor: postType === type ? POST_TYPE_COLORS[type] : "transparent",
+                          color: item.likedByMe ? colors.accent : colors.textSecondary,
+                          fontFamily: Typography.bodySemiBold,
                         },
                       ]}
                     >
-                      <Ionicons
-                        name={POST_TYPE_ICONS[type]}
-                        size={14}
-                        color={postType === type ? POST_TYPE_COLORS[type] : theme.textSecondary}
-                      />
-                      <Text style={[styles.typeChipText, {
-                        color: postType === type ? POST_TYPE_COLORS[type] : theme.textSecondary,
-                        fontFamily: "Outfit_500Medium",
-                      }]}>
-                        {t(type)}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-
-                <TextInput
-                  style={[styles.postInput, {
-                    color: theme.text,
-                    backgroundColor: theme.background,
-                    fontFamily: "Outfit_400Regular",
-                  }]}
-                  value={postContent}
-                  onChangeText={setPostContent}
-                  placeholder={t("shareYourJourney")}
-                  placeholderTextColor={theme.textMuted}
-                  multiline
-                  textAlignVertical="top"
-                  testID="postContent"
-                />
-
-                <Pressable
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    createMutation.mutate();
-                  }}
-                  disabled={!postContent.trim() || createMutation.isPending}
-                  style={({ pressed }) => [
-                    styles.createBtn,
-                    {
-                      backgroundColor: postContent.trim() ? theme.accent : theme.border,
-                      opacity: pressed ? 0.85 : 1,
-                    },
-                  ]}
-                >
-                  <Ionicons name="send" size={18} color="#fff" />
-                  <Text style={[styles.createBtnText, { fontFamily: "Outfit_700Bold" }]}>
-                    {t("publish")}
+                      {`${item.likedByMe ? "🔥" : "👏"} ${item.kudosCount ?? 0}`}
+                    </Text>
+                  </Pressable>
+                  <Text style={[styles.kudosLabel, { color: colors.textMuted, fontFamily: Typography.bodyRegular }]}>
+                    {t("activityKudosLabel")}
                   </Text>
-                </Pressable>
+                </View>
               </View>
+            </Pressable>
+          );
+        }}
+        ListEmptyComponent={
+          showSkeleton ? (
+            <PulseSkeletons />
+          ) : (
+            <View style={styles.emptyState}>
+              <Text style={[styles.emptyTitle, { color: colors.text, fontFamily: Typography.titleStrong }]}>
+                {t("feedEmptyFollowTitle")}
+              </Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
+                {t("feedEmptyFollowSubtitle")}
+              </Text>
+              <PrimaryButton
+                label={t("feedExploreAthletes")}
+                onPress={() => router.push("/users/explore" as any)}
+                style={styles.exploreButton}
+              />
+              <PulseSkeletons />
             </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
-      </Modal>
+          )
+        }
+      />
+
+      <FeedbackToast
+        message={toastMessage}
+        tone="error"
+        style={{ bottom: Math.max(insets.bottom, 12) + 78 }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
+  root: {
+    flex: 1,
+  },
+  headerWrap: {
+    gap: 8,
+    marginBottom: 6,
+  },
+  title: {
+    fontSize: 48,
+    lineHeight: 52,
+    letterSpacing: -1.2,
+  },
+  subtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 14,
+    gap: 12,
+  },
+  cardHeaderRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingBottom: 12,
+    justifyContent: "space-between",
+    gap: 10,
   },
-  title: { fontSize: 32 },
-  newPostBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    alignItems: "center", justifyContent: "center",
+  authorBlock: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    flex: 1,
   },
-  postCard: { borderRadius: 16, padding: 16, gap: 12 },
-  postHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  postAuthorRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  avatar: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  avatarText: { color: "#fff", fontSize: 14 },
-  postAuthorInfo: { flex: 1, gap: 2 },
-  postAuthorName: { fontSize: 14 },
-  postMetaRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  typeBadge: {
-    flexDirection: "row", alignItems: "center", gap: 4,
-    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8,
+  authorTextWrap: {
+    flex: 1,
+    gap: 2,
   },
-  typeBadgeText: { fontSize: 10 },
-  postTime: { fontSize: 11 },
-  deleteBtn: { padding: 4 },
-  postContent: { fontSize: 14, lineHeight: 20 },
-  workoutDataCard: { borderRadius: 12, padding: 12, flexDirection: "row", gap: 16 },
-  workoutDataRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  workoutDataText: { fontSize: 12 },
-  postActions: { flexDirection: "row", alignItems: "center" },
-  likeBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
-  likeCount: { fontSize: 13 },
-  emptyWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 80, gap: 12 },
-  emptyTitle: { fontSize: 18 },
-  emptyText: { fontSize: 14, textAlign: "center" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
-  modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, gap: 16 },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  modalTitle: { fontSize: 20 },
-  typeSelector: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  typeChip: {
-    flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1,
+  authorName: {
+    fontSize: 17,
+    lineHeight: 21,
   },
-  typeChipText: { fontSize: 12 },
-  postInput: {
-    borderRadius: 14, padding: 14,
-    fontSize: 15, minHeight: 120, maxHeight: 200,
+  authorMeta: {
+    fontSize: 12,
+    lineHeight: 16,
   },
-  createBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 8, borderRadius: 14, paddingVertical: 14,
+  activityTitle: {
+    fontSize: 24,
+    lineHeight: 28,
+    letterSpacing: -0.6,
   },
-  createBtnText: { color: "#fff", fontSize: 15 },
-  guestPromptWrap: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32, gap: 14 },
-  guestPromptTitle: { fontSize: 20, textAlign: "center" },
-  guestPromptText: { fontSize: 14, textAlign: "center", lineHeight: 20 },
-  guestLoginBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32, marginTop: 8 },
-  guestLoginBtnText: { color: "#fff", fontSize: 16 },
+  metricsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 10,
+    gap: 10,
+  },
+  metricItem: {
+    flex: 1,
+    gap: 2,
+  },
+  metricValue: {
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  metricLabel: {
+    fontSize: 10,
+    lineHeight: 12,
+    letterSpacing: 0.9,
+    textTransform: "uppercase",
+  },
+  kudosRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  kudosButton: {
+    borderWidth: 1,
+    borderRadius: 999,
+    minHeight: 36,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  kudosText: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  kudosLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  skeletonWrap: {
+    gap: 12,
+  },
+  skeletonCard: {
+    height: 148,
+    borderRadius: 12,
+    backgroundColor: DATA_SURFACE,
+  },
+  emptyState: {
+    paddingTop: 28,
+    paddingBottom: 16,
+    gap: 10,
+  },
+  emptyTitle: {
+    textAlign: "center",
+    fontSize: 22,
+    lineHeight: 28,
+    letterSpacing: -0.3,
+  },
+  emptySubtitle: {
+    textAlign: "center",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  exploreButton: {
+    marginTop: 6,
+  },
+  guestContent: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  guestIconWrap: {
+    width: 58,
+    height: 58,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  guestTitle: {
+    fontSize: 26,
+    lineHeight: 30,
+    textAlign: "center",
+  },
+  guestBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    maxWidth: 320,
+  },
+  guestButton: {
+    width: 220,
+    marginTop: 6,
+  },
 });

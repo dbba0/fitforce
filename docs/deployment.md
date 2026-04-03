@@ -21,11 +21,11 @@
 
 ## 3. Store release
 1. Apple App Store Connect
-   - Créer app + bundle id `com.fitpulse.mobile`
+   - Créer app + bundle id `com.fitforce`
    - Upload build via EAS
    - Configurer privacy labels + subscriptions
 2. Google Play Console
-   - Créer app + package `com.fitpulse.mobile`
+   - Créer app + package `com.fitforce`
    - Upload AAB
    - Configurer in-app subscriptions
 

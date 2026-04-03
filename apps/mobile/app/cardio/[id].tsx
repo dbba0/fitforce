@@ -12,12 +12,11 @@ import {
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import Animated, {
   FadeIn,
 } from "react-native-reanimated";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle } from "react-native-svg";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWorkout } from "@/contexts/WorkoutContext";
@@ -26,6 +25,7 @@ import { apiRequest, queryClient } from "@/lib/query-client";
 import { PROGRAMS } from "@/data/programs";
 import { EXERCISES } from "@/data/exercises";
 import { Colors } from "@/constants/colors";
+import { GhostButton, PrimaryButton } from "@/components/ui";
 
 type CardioPhase = "preview" | "active" | "rest" | "done";
 
@@ -349,95 +349,77 @@ export default function CardioScreen() {
 
   if (phase === "done") {
     return (
-      <LinearGradient
-        colors={program.gradient}
-        style={[styles.container, { paddingTop: insets.top + webTop }]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
+      <View style={[styles.container, { backgroundColor: theme.background, paddingTop: insets.top + webTop }]}>
+        <View style={[styles.doneTopGlow, { backgroundColor: `${program.gradient[0]}22` }]} />
         <Animated.View entering={FadeIn.duration(400)} style={styles.doneContainer}>
           <View style={styles.doneIconWrap}>
             <Ionicons name="checkmark-circle" size={72} color="#fff" />
           </View>
-          <Text style={[styles.doneTitle, { fontFamily: "Outfit_800ExtraBold" }]}>
+          <Text style={[styles.doneTitle, { fontFamily: "Syne_800ExtraBold" }]}>
             {t("cardioComplete")}
           </Text>
-          <Text style={[styles.doneSubtitle, { fontFamily: "Outfit_400Regular" }]}>
+          <Text style={[styles.doneSubtitle, { fontFamily: "DMSans_400Regular" }]}>
             {t("greatJob")}
           </Text>
 
           <View style={styles.doneSummaryRow}>
             <View style={styles.doneStat}>
               <Ionicons name="time-outline" size={22} color="rgba(255,255,255,0.8)" />
-              <Text style={[styles.doneStatValue, { fontFamily: "Outfit_700Bold" }]}>
+              <Text style={[styles.doneStatValue, { fontFamily: "Syne_700Bold" }]}>
                 {Math.round(totalElapsed / 60)} {t("minutes")}
               </Text>
-              <Text style={[styles.doneStatLabel, { fontFamily: "Outfit_400Regular" }]}>
+              <Text style={[styles.doneStatLabel, { fontFamily: "DMSans_400Regular" }]}>
                 {t("workoutTime")}
               </Text>
             </View>
             <View style={styles.doneSeparator} />
             <View style={styles.doneStat}>
               <Ionicons name="flame-outline" size={22} color="rgba(255,255,255,0.8)" />
-              <Text style={[styles.doneStatValue, { fontFamily: "Outfit_700Bold" }]}>
+              <Text style={[styles.doneStatValue, { fontFamily: "Syne_700Bold" }]}>
                 {totalCalories} {t("kcal")}
               </Text>
-              <Text style={[styles.doneStatLabel, { fontFamily: "Outfit_400Regular" }]}>
+              <Text style={[styles.doneStatLabel, { fontFamily: "DMSans_400Regular" }]}>
                 {t("caloriesBurned")}
               </Text>
             </View>
             <View style={styles.doneSeparator} />
             <View style={styles.doneStat}>
               <Ionicons name="repeat-outline" size={22} color="rgba(255,255,255,0.8)" />
-              <Text style={[styles.doneStatValue, { fontFamily: "Outfit_700Bold" }]}>
+              <Text style={[styles.doneStatValue, { fontFamily: "Syne_700Bold" }]}>
                 {totalIntervals}
               </Text>
-              <Text style={[styles.doneStatLabel, { fontFamily: "Outfit_400Regular" }]}>
+              <Text style={[styles.doneStatLabel, { fontFamily: "DMSans_400Regular" }]}>
                 {t("sets")}
               </Text>
             </View>
           </View>
 
           {isAuthenticated && (
-            <Pressable
+            <PrimaryButton
+              label={shared ? t("done") : t("shareToFeed")}
+              icon={shared ? "checkmark-circle" : "share-outline"}
               onPress={handleShareToFeed}
-              style={({ pressed }) => [
-                styles.doneSaveBtn,
-                { backgroundColor: shared ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.25)", opacity: pressed ? 0.85 : 1, marginBottom: 12 },
-              ]}
-            >
-              <Ionicons name={shared ? "checkmark-circle" : "share-outline"} size={18} color="#fff" />
-              <Text style={[styles.doneSaveBtnText, { fontFamily: "Outfit_600SemiBold" }]}>
-                {shared ? t("done") : t("shareToFeed")}
-              </Text>
-            </Pressable>
+              loading={sharingPost}
+              style={[styles.doneSaveBtn, shared ? styles.doneSaveBtnSecondary : null, { marginBottom: 12 }]}
+              textStyle={styles.doneSaveBtnText}
+            />
           )}
 
-          <Pressable
+          <PrimaryButton
+            label={t("saveAndFinish")}
+            icon="checkmark"
             onPress={handleFinishAndSave}
-            style={({ pressed }) => [
-              styles.doneSaveBtn,
-              { backgroundColor: "rgba(255,255,255,0.25)", opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Ionicons name="checkmark" size={20} color="#fff" />
-            <Text style={[styles.doneSaveBtnText, { fontFamily: "Outfit_700Bold" }]}>
-              {t("saveAndFinish")}
-            </Text>
-          </Pressable>
+            style={styles.doneSaveBtn}
+            textStyle={styles.doneSaveBtnText}
+          />
         </Animated.View>
-      </LinearGradient>
+      </View>
     );
   }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <LinearGradient
-        colors={[program.gradient[0] + "40", "transparent"]}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 0.55 }}
-      />
+      <View style={[styles.topGlow, { backgroundColor: `${program.gradient[0]}18` }]} />
 
       <View style={[styles.topBar, { paddingTop: insets.top + webTop + 8 }]}>
         <Pressable
@@ -456,14 +438,14 @@ export default function CardioScreen() {
               ]}
             />
           </View>
-          <Text style={[styles.progressLabel, { color: theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>
+          <Text style={[styles.progressLabel, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
             {completedIntervals}/{totalIntervals}
           </Text>
         </View>
 
         <View style={[styles.timerBadge, { backgroundColor: theme.card }]}>
           <Ionicons name="time-outline" size={14} color={theme.accent} />
-          <Text style={[styles.timerBadgeText, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>
+          <Text style={[styles.timerBadgeText, { color: theme.text, fontFamily: "DMSans_600SemiBold" }]}>
             {formatTime(totalElapsed)}
           </Text>
         </View>
@@ -476,51 +458,51 @@ export default function CardioScreen() {
         {phase === "preview" && (
           <Animated.View entering={FadeIn.duration(400)} style={styles.phaseBlock}>
             <View style={[styles.exIcon, { backgroundColor: (currentExercise?.imageColor ?? program.gradient[0]) + "25" }]}>
-              <MaterialCommunityIcons
-                name={currentExercise?.isCardio && currentExercise.equipment === "cardioMachine" ? "run" : "run-fast"}
+              <Ionicons
+                name={currentExercise?.isCardio && currentExercise.equipment === "cardioMachine" ? "bicycle-outline" : "walk-outline"}
                 size={60}
                 color={currentExercise?.imageColor ?? program.gradient[0]}
               />
             </View>
 
-            <Text style={[styles.exName, { color: theme.text, fontFamily: "Outfit_800ExtraBold" }]}>
+            <Text style={[styles.exName, { color: theme.text, fontFamily: "Syne_800ExtraBold" }]}>
               {exT?.name}
             </Text>
-            <Text style={[styles.exDesc, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
+            <Text style={[styles.exDesc, { color: theme.textSecondary, fontFamily: "DMSans_400Regular" }]}>
               {exT?.description}
             </Text>
 
             <View style={styles.metaRow}>
               <View style={[styles.metaCard, { backgroundColor: theme.card }]}>
-                <Text style={[styles.metaValue, { color: program.gradient[0], fontFamily: "Outfit_800ExtraBold" }]}>
+                <Text style={[styles.metaValue, { color: program.gradient[0], fontFamily: "Syne_800ExtraBold" }]}>
                   {currentWorkout?.sets}
                 </Text>
-                <Text style={[styles.metaLabel, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
+                <Text style={[styles.metaLabel, { color: theme.textSecondary, fontFamily: "DMSans_400Regular" }]}>
                   {t("round")}{currentWorkout?.sets !== 1 ? "s" : ""}
                 </Text>
               </View>
 
               <View style={[styles.metaCard, { backgroundColor: theme.card }]}>
-                <Text style={[styles.metaValue, { color: program.gradient[0], fontFamily: "Outfit_800ExtraBold" }]}>
+                <Text style={[styles.metaValue, { color: program.gradient[0], fontFamily: "Syne_800ExtraBold" }]}>
                   {formatTime(effectiveDuration)}
                 </Text>
-                <Text style={[styles.metaLabel, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
+                <Text style={[styles.metaLabel, { color: theme.textSecondary, fontFamily: "DMSans_400Regular" }]}>
                   {t("duration")}
                 </Text>
               </View>
 
               <View style={[styles.metaCard, { backgroundColor: theme.card }]}>
-                <Text style={[styles.metaValue, { color: program.gradient[0], fontFamily: "Outfit_800ExtraBold" }]}>
+                <Text style={[styles.metaValue, { color: program.gradient[0], fontFamily: "Syne_800ExtraBold" }]}>
                   {currentWorkout?.restSeconds}s
                 </Text>
-                <Text style={[styles.metaLabel, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
+                <Text style={[styles.metaLabel, { color: theme.textSecondary, fontFamily: "DMSans_400Regular" }]}>
                   {t("rest")}
                 </Text>
               </View>
             </View>
 
             <View style={[styles.adjustRow, { backgroundColor: theme.card }]}>
-              <Text style={[styles.adjustLabel, { color: theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>
+              <Text style={[styles.adjustLabel, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
                 {t("adjustDuration")}
               </Text>
               <View style={styles.adjustControls}>
@@ -530,7 +512,7 @@ export default function CardioScreen() {
                 >
                   <Ionicons name="remove" size={18} color={theme.text} />
                 </Pressable>
-                <Text style={[styles.adjustValue, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
+                <Text style={[styles.adjustValue, { color: theme.text, fontFamily: "Syne_700Bold" }]}>
                   {formatTime(effectiveDuration)}
                 </Text>
                 <Pressable
@@ -544,30 +526,25 @@ export default function CardioScreen() {
 
             <View style={[styles.recommendedBadge, { backgroundColor: program.gradient[0] + "20" }]}>
               <Ionicons name="bulb-outline" size={15} color={program.gradient[0]} />
-              <Text style={[styles.recommendedText, { color: program.gradient[0], fontFamily: "Outfit_500Medium" }]}>
+              <Text style={[styles.recommendedText, { color: program.gradient[0], fontFamily: "DMSans_500Medium" }]}>
                 {t("recommendedTime")}: {recommendedMin} {t("minutes")} · {t(profile.level)} · {t(profile.objective as any)}
               </Text>
             </View>
 
-            <Pressable
+            <PrimaryButton
+              label={setIndex === 0 && exIndex === 0 ? t("startInterval") : t("nextRound")}
+              icon="play"
               onPress={handleStart}
-              style={({ pressed }) => [
-                styles.bigBtn,
-                { backgroundColor: program.gradient[0], opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] },
-              ]}
-            >
-              <Ionicons name="play" size={22} color="#fff" />
-              <Text style={[styles.bigBtnText, { fontFamily: "Outfit_700Bold" }]}>
-                {setIndex === 0 && exIndex === 0 ? t("startInterval") : t("nextRound")}
-              </Text>
-            </Pressable>
+              style={[styles.bigBtn, { backgroundColor: program.gradient[0] }]}
+              textStyle={styles.bigBtnText}
+            />
 
             {nextWorkout?.exercise && (
               <View style={[styles.upNextCard, { backgroundColor: theme.card }]}>
-                <Text style={[styles.upNextLabel, { color: theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>
+                <Text style={[styles.upNextLabel, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
                   {t("upNext")}
                 </Text>
-                <Text style={[styles.upNextName, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>
+                <Text style={[styles.upNextName, { color: theme.text, fontFamily: "DMSans_600SemiBold" }]}>
                   {nextExT?.name}
                 </Text>
               </View>
@@ -577,11 +554,11 @@ export default function CardioScreen() {
 
         {phase === "active" && (
           <Animated.View entering={FadeIn.duration(300)} style={styles.phaseBlock}>
-            <Text style={[styles.roundLabel, { color: theme.textSecondary, fontFamily: "Outfit_600SemiBold" }]}>
+            <Text style={[styles.roundLabel, { color: theme.textSecondary, fontFamily: "DMSans_600SemiBold" }]}>
               {t("round")} {setIndex + 1} {t("of")} {currentWorkout?.sets}
             </Text>
 
-            <Text style={[styles.exNameActive, { color: theme.text, fontFamily: "Outfit_800ExtraBold" }]}>
+            <Text style={[styles.exNameActive, { color: theme.text, fontFamily: "Syne_800ExtraBold" }]}>
               {exT?.name}
             </Text>
 
@@ -602,34 +579,28 @@ export default function CardioScreen() {
                 ]}
               >
                 <Ionicons name={isPaused ? "play" : "pause"} size={24} color={program.gradient[0]} />
-                <Text style={[styles.controlBtnText, { color: program.gradient[0], fontFamily: "Outfit_600SemiBold" }]}>
+                <Text style={[styles.controlBtnText, { color: program.gradient[0], fontFamily: "DMSans_600SemiBold" }]}>
                   {isPaused ? t("resume") : t("pause")}
                 </Text>
               </Pressable>
 
-              <Pressable
+              <PrimaryButton
+                label={t("intervalComplete")}
+                icon="checkmark"
                 onPress={handleSkipInterval}
-                style={({ pressed }) => [
-                  styles.bigBtn,
-                  styles.bigBtnCompact,
-                  { backgroundColor: program.gradient[0], opacity: pressed ? 0.9 : 1 },
-                ]}
-              >
-                <Ionicons name="checkmark" size={22} color="#fff" />
-                <Text style={[styles.bigBtnText, { fontFamily: "Outfit_700Bold" }]}>
-                  {t("intervalComplete")}
-                </Text>
-              </Pressable>
+                style={[styles.bigBtn, styles.bigBtnCompact, { backgroundColor: program.gradient[0] }]}
+                textStyle={styles.bigBtnText}
+              />
             </View>
           </Animated.View>
         )}
 
         {phase === "rest" && (
           <Animated.View entering={FadeIn.duration(300)} style={styles.phaseBlock}>
-            <Text style={[styles.restTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
+            <Text style={[styles.restTitle, { color: theme.text, fontFamily: "Syne_700Bold" }]}>
               {t("resting")}
             </Text>
-            <Text style={[styles.restSub, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
+            <Text style={[styles.restSub, { color: theme.textSecondary, fontFamily: "DMSans_400Regular" }]}>
               {t("wellDone")}
             </Text>
 
@@ -641,40 +612,34 @@ export default function CardioScreen() {
               pauseLabel=""
             />
 
-            <Pressable
+            <GhostButton
+              label={t("skipRest")}
               onPress={handleSkipRest}
-              style={({ pressed }) => [
-                styles.skipBtn,
-                { backgroundColor: theme.card, opacity: pressed ? 0.8 : 1 },
-              ]}
-            >
-              <Ionicons name="play-skip-forward" size={18} color={theme.accent} />
-              <Text style={[styles.skipBtnText, { color: theme.accent, fontFamily: "Outfit_600SemiBold" }]}>
-                {t("skipRest")}
-              </Text>
-            </Pressable>
+              style={[styles.skipBtn, { backgroundColor: theme.card }]}
+              textStyle={[styles.skipBtnText, { color: theme.accent }]}
+            />
 
             {setIndex + 1 < (currentWorkout?.sets ?? 1) ? (
               <View style={[styles.upNextCard, { backgroundColor: theme.card }]}>
-                <Text style={[styles.upNextLabel, { color: theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>
+                <Text style={[styles.upNextLabel, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
                   {t("nextRound")}
                 </Text>
-                <Text style={[styles.upNextName, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>
+                <Text style={[styles.upNextName, { color: theme.text, fontFamily: "DMSans_600SemiBold" }]}>
                   {exT?.name} · {t("round")} {setIndex + 2}
                 </Text>
               </View>
             ) : nextWorkout?.exercise ? (
               <View style={[styles.upNextCard, { backgroundColor: theme.card }]}>
-                <Text style={[styles.upNextLabel, { color: theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>
+                <Text style={[styles.upNextLabel, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
                   {t("nextExercise")}
                 </Text>
-                <Text style={[styles.upNextName, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>
+                <Text style={[styles.upNextName, { color: theme.text, fontFamily: "DMSans_600SemiBold" }]}>
                   {nextExT?.name}
                 </Text>
               </View>
             ) : (
               <View style={[styles.upNextCard, { backgroundColor: theme.card }]}>
-                <Text style={[styles.upNextLabel, { color: theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>
+                <Text style={[styles.upNextLabel, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
                   {t("allExercisesDone")}
                 </Text>
               </View>
@@ -688,6 +653,14 @@ export default function CardioScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  topGlow: {
+    ...StyleSheet.absoluteFillObject,
+    height: "52%",
+  },
+  doneTopGlow: {
+    ...StyleSheet.absoluteFillObject,
+    height: "55%",
+  },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -734,37 +707,35 @@ const styles = StyleSheet.create({
   },
   recommendedText: { fontSize: 12, flex: 1, flexWrap: "wrap" },
   bigBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 10, width: "100%", borderRadius: 18, paddingVertical: 18,
+    width: "100%",
+    borderRadius: 18,
+    height: 56,
   },
-  bigBtnCompact: { paddingVertical: 14 },
-  bigBtnText: { color: "#fff", fontSize: 17 },
+  bigBtnCompact: { height: 50 },
+  bigBtnText: { fontSize: 17 },
   upNextCard: { width: "100%", borderRadius: 16, padding: 14, gap: 4 },
   upNextLabel: { fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5 },
   upNextName: { fontSize: 16 },
   roundLabel: { fontSize: 14, textTransform: "uppercase", letterSpacing: 1 },
   exNameActive: { fontSize: 22, textAlign: "center", marginBottom: 8 },
-  ringTime: { fontSize: 52, fontFamily: "Outfit_800ExtraBold" },
-  pausedLabel: { fontSize: 13, fontFamily: "Outfit_600SemiBold", marginTop: 2 },
+  ringTime: { fontSize: 46, fontFamily: "Syne_800ExtraBold" },
+  pausedLabel: { fontSize: 13, fontFamily: "DMSans_600SemiBold", marginTop: 2 },
   activeControls: { flexDirection: "row", gap: 10, width: "100%", alignItems: "center" },
   controlBtn: {
     flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
     gap: 8, borderRadius: 16, paddingVertical: 14,
   },
   controlBtnText: { fontSize: 15 },
-  restTitle: { fontSize: 28, marginBottom: 4 },
+  restTitle: { fontSize: 24, marginBottom: 4 },
   restSub: { fontSize: 15, marginBottom: 8 },
-  skipBtn: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    paddingHorizontal: 20, paddingVertical: 14, borderRadius: 16,
-  },
+  skipBtn: { width: "100%", borderRadius: 16, height: 50 },
   skipBtnText: { fontSize: 15 },
   doneContainer: {
     flex: 1, alignItems: "center", justifyContent: "center",
     paddingHorizontal: 24, gap: 16,
   },
   doneIconWrap: { marginBottom: 8 },
-  doneTitle: { fontSize: 30, color: "#fff", textAlign: "center" },
+  doneTitle: { fontSize: 26, color: "#fff", textAlign: "center" },
   doneSubtitle: { fontSize: 15, color: "rgba(255,255,255,0.75)", textAlign: "center", marginBottom: 8 },
   doneSummaryRow: {
     flexDirection: "row", backgroundColor: "rgba(255,255,255,0.15)",
@@ -775,8 +746,11 @@ const styles = StyleSheet.create({
   doneStatLabel: { fontSize: 11, color: "rgba(255,255,255,0.7)" },
   doneSeparator: { width: 1, backgroundColor: "rgba(255,255,255,0.2)", marginHorizontal: 8 },
   doneSaveBtn: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    gap: 10, width: "100%", borderRadius: 18, paddingVertical: 18, marginTop: 8,
+    width: "100%",
+    borderRadius: 18,
+    height: 56,
+    marginTop: 8,
   },
-  doneSaveBtnText: { color: "#fff", fontSize: 17 },
+  doneSaveBtnSecondary: { backgroundColor: "rgba(255,255,255,0.22)" },
+  doneSaveBtnText: { fontSize: 17 },
 });

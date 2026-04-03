@@ -1,6 +1,6 @@
-# FitPulse - App Fitness Mobile (MVP + Premium)
+# FitForce - App Fitness Mobile (MVP + Premium)
 
-FitPulse est une application de fitness moderne conçue pour iOS et Android:
+FitForce est une application de fitness moderne conçue pour iOS et Android:
 - Entraînement maison et salle
 - Goals tracking avancé
 - Dashboard de progression

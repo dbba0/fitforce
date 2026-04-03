@@ -14,6 +14,7 @@ require('./models/HydrationLog');
 require('./models/Subscription');
 require('./models/Session');
 require('./models/Post');
+require('./models/Activity');
 
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -26,6 +27,8 @@ const billingRoutes = require('./routes/billingRoutes');
 const sessionRoutes = require('./routes/sessionRoutes');
 const socialRoutes = require('./routes/socialRoutes');
 const privacyRoutes = require('./routes/privacyRoutes');
+const exercisesRoutes = require('./routes/exercises');
+const activitiesRoutes = require('./routes/activities');
 
 const app = express();
 
@@ -66,14 +69,18 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/programs', programRoutes);
+app.use('/api/sessions', sessionRoutes);
+// Deprecated: keep `/api/workouts` for backward compatibility. New writes/reads should use `/api/sessions`.
+// TODO: remove once all clients are migrated.
 app.use('/api/workouts', workoutRoutes);
 app.use('/api/goals', goalRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/nutrition', nutritionRoutes);
 app.use('/api/billing', billingRoutes);
-app.use('/api/sessions', sessionRoutes);
 app.use('/api', socialRoutes);
 app.use('/api/privacy', privacyRoutes);
+app.use('/api/exercises', exercisesRoutes);
+app.use('/api/activities', activitiesRoutes);
 
 app.use(errorHandler);
 

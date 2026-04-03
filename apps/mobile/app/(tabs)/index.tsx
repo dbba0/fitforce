@@ -1,480 +1,361 @@
-import React, { useMemo, useState } from "react";
-import {
-  StyleSheet,
-  Text,
-  View,
-  ScrollView,
-  Pressable,
-  Platform,
-  useColorScheme,
-  Modal,
-} from "react-native";
+import React, { useMemo } from "react";
+import { Platform, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import * as Haptics from "expo-haptics";
 import { router } from "expo-router";
-import Animated, {
-  FadeInDown,
-  FadeInRight,
-} from "react-native-reanimated";
-import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWorkout } from "@/contexts/WorkoutContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { Colors } from "@/constants/colors";
-import { PROGRAMS } from "@/data/programs";
-import { EXERCISES } from "@/data/exercises";
+import { SkeletonCard, StateCard } from "@/components/ui";
+import {
+  ContextualHeader,
+  MiniStatCarousel,
+  MotivationQuickStart,
+} from "@/features/home";
+import { useAppTheme } from "@/hooks";
+import { PROGRAMS, Program } from "@/data/programs";
+import { TranslationKey } from "@/lib/i18n";
+import { HeroWorkoutCard, type MiniStatCardData } from "@/ui";
 
-const DAILY_QUOTES: Record<string, string[]> = {
-  en: [
-    "Push yourself, because no one else is going to do it for you.",
-    "The only bad workout is the one that didn't happen.",
-    "Your body can stand almost anything. It's your mind you have to convince.",
-    "Success starts with self-discipline.",
-    "Don't stop when you're tired. Stop when you're done.",
-  ],
-  fr: [
-    "Pousse-toi, car personne d'autre ne le fera pour toi.",
-    "Le seul mauvais entraînement est celui qui n'a pas eu lieu.",
-    "Ton corps peut presque tout supporter. C'est ton esprit qu'il faut convaincre.",
-    "Le succès commence par la discipline.",
-    "N'arrête pas quand tu es fatigué. Arrête quand tu as terminé.",
-  ],
-  es: [
-    "Empújate a ti mismo, porque nadie más lo hará.",
-    "El único mal entrenamiento es el que no ocurrió.",
-    "Tu cuerpo puede soportar casi todo. Es tu mente la que debes convencer.",
-    "El éxito empieza con la autodisciplina.",
-    "No pares cuando estés cansado. Para cuando hayas terminado.",
-  ],
-  de: [
-    "Treibe dich selbst an, denn niemand anderes wird es tun.",
-    "Das einzige schlechte Training ist das, das nicht stattfand.",
-    "Dein Körper kann fast alles ertragen. Du musst deinen Geist überzeugen.",
-    "Erfolg beginnt mit Selbstdisziplin.",
-    "Hör nicht auf wenn du müde bist. Hör auf wenn du fertig bist.",
-  ],
-  ar: [
-    "ادفع نفسك، لأنه لن يفعل ذلك أحد غيرك.",
-    "التمرين السيئ الوحيد هو الذي لم يحدث.",
-    "جسمك يتحمل تقريباً كل شيء. عقلك هو ما تحتاج إلى إقناعه.",
-    "النجاح يبدأ بالانضباط الذاتي.",
-    "لا تتوقف عندما تشعر بالتعب. توقف عندما تنتهي.",
-  ],
-};
-
-function getGreeting(lang: string, tFn: (k: any) => string): string {
+function getGreetingKey(): "goodMorning" | "goodAfternoon" | "goodEvening" {
   const hour = new Date().getHours();
-  if (hour < 12) return tFn("goodMorning");
-  if (hour < 17) return tFn("goodAfternoon");
-  return tFn("goodEvening");
+  if (hour < 12) return "goodMorning";
+  if (hour < 17) return "goodAfternoon";
+  return "goodEvening";
 }
 
-function StatCard({ value, label, icon, color, delay }: {
-  value: string | number;
-  label: string;
-  icon: React.ReactNode;
-  color: string;
-  delay: number;
-}) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
+function formatCompactNumber(value: number): string {
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  return `${Math.round(value)}`;
+}
 
-  return (
-    <Animated.View entering={FadeInDown.delay(delay).duration(400)} style={[styles.statCard, { backgroundColor: theme.card }]}>
-      <View style={[styles.statIconWrap, { backgroundColor: color + "20" }]}>
-        {icon}
-      </View>
-      <Text style={[styles.statValue, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>{label}</Text>
-    </Animated.View>
+function formatTemplate(template: string, values: Record<string, string | number>): string {
+  return Object.entries(values).reduce(
+    (acc, [key, value]) => acc.replace(new RegExp(`\\{${key}\\}`, "g"), String(value)),
+    template
   );
 }
 
-function WeekBar({ value, label, isToday, onPress }: { value: number; label: string; isToday: boolean; onPress?: () => void }) {
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
-  const height = value > 0 ? Math.max(8, Math.min(value * 30, 60)) : 4;
+function categoryLabel(program: Program, t: (k: TranslationKey) => string): string {
+  return t(program.category as TranslationKey);
+}
 
-  return (
-    <Pressable onPress={onPress} style={styles.weekBarContainer}>
-      <View style={[styles.weekBarBg, { backgroundColor: theme.border }]}>
-        <View
-          style={[
-            styles.weekBarFill,
-            {
-              height,
-              backgroundColor: isToday ? theme.accent : value > 0 ? theme.accentLight : "transparent",
-            },
-          ]}
-        />
-      </View>
-      <Text style={[styles.weekBarLabel, { color: isToday ? theme.accent : theme.textSecondary, fontFamily: "Outfit_500Medium" }]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
+function startOfWeekMonday(date: Date): Date {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  const day = copy.getDay();
+  const delta = day === 0 ? -6 : 1 - day;
+  copy.setDate(copy.getDate() + delta);
+  return copy;
 }
 
 export default function HomeScreen() {
-  const { t, language } = useLanguage();
-  const { profile, totalWorkouts, totalMinutes, totalCalories, streakDays, weeklyProgress, sessions } = useWorkout();
+  const { t } = useLanguage();
   const { user } = useAuth();
+  const {
+    profile,
+    streakDays,
+    weeklyChallenge,
+    weeklyProgress,
+    sessions,
+    isLoaded,
+  } = useWorkout();
+  const { colors, layout, spacing } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
-  const [selectedDay, setSelectedDay] = useState<{ label: string; date: Date; sessions: typeof sessions } | null>(null);
 
-  const displayName = user?.displayName || profile.name;
+  const authDisplayName =
+    typeof user?.displayName === "string" && user.displayName.trim().length > 0
+      ? user.displayName.trim()
+      : "";
+  const profileDisplayName =
+    typeof profile.name === "string" && profile.name.trim().length > 0
+      ? profile.name.trim()
+      : "";
+  const displayName = authDisplayName || profileDisplayName || "Athlète";
+  const firstName = displayName.split(/\s+/)[0] || "Athlète";
 
-  const quote = useMemo(() => {
-    const quotes = DAILY_QUOTES[language] ?? DAILY_QUOTES.en;
-    const dayIndex = new Date().getDay();
-    return quotes[dayIndex % quotes.length];
-  }, [language]);
+  const featuredProgram = useMemo(
+    () => PROGRAMS.find((program) => program.id === "home_full_body_intermediate") ?? PROGRAMS[0] ?? null,
+    []
+  );
 
-  const allDayLabels = [t("sunday"), t("monday"), t("tuesday"), t("wednesday"), t("thursday"), t("friday"), t("saturday")];
-  const weekDates = useMemo(() => {
-    return [0, 1, 2, 3, 4, 5, 6].map((offset) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (6 - offset));
-      d.setHours(0, 0, 0, 0);
-      return d;
-    });
-  }, []);
-  const weekLabels = weekDates.map((d) => {
-    const fullLabel = allDayLabels[d.getDay()];
-    return fullLabel.slice(0, 3);
-  });
+  const suggestedProgram = useMemo(() => {
+    if (!featuredProgram) return PROGRAMS[0] ?? null;
+    const alt = PROGRAMS.find((program) => program.id === "home_hiit") ?? PROGRAMS[1];
+    if (alt && alt.id !== featuredProgram.id) return alt;
+    return PROGRAMS.find((program) => program.id !== featuredProgram.id) ?? featuredProgram;
+  }, [featuredProgram]);
 
-  const handleBarPress = (index: number) => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const date = weekDates[index];
-    const dateStr = date.toISOString().split("T")[0];
-    const daySessions = sessions.filter((s) => {
-      const sd = new Date(s.date);
-      sd.setHours(0, 0, 0, 0);
-      return sd.toISOString().split("T")[0] === dateStr;
-    });
-    setSelectedDay({ label: allDayLabels[date.getDay()], date, sessions: daySessions });
-  };
+  const weeklyVolumeMinutes = useMemo(() => {
+    const currentWeekStart = startOfWeekMonday(new Date());
+    return sessions.reduce((sum, session) => {
+      if (!session.completed) return sum;
+      const date = new Date(session.date);
+      return date >= currentWeekStart ? sum + session.durationMin : sum;
+    }, 0);
+  }, [sessions]);
 
-  const featuredProgram = PROGRAMS[0];
-  const handleProgramPress = () => {
+  const recentProgress = useMemo(() => {
+    const recent = weeklyProgress.slice(-3).reduce((sum, value) => sum + value, 0);
+    const previous = weeklyProgress.slice(-6, -3).reduce((sum, value) => sum + value, 0);
+    if (recent === 0 && previous === 0) {
+      return {
+        value: t("homeMiniStatProgressStable"),
+        trend: "neutral" as const,
+        indicatorValue: 0.42,
+      };
+    }
+    if (previous <= 0 && recent > 0) {
+      return {
+        value: formatTemplate(t("homeMiniStatProgressUp"), { pct: 100 }),
+        trend: "up" as const,
+        indicatorValue: 0.86,
+      };
+    }
+    const delta = Math.round(((recent - previous) / Math.max(1, previous)) * 100);
+    if (delta <= 0) {
+      return {
+        value: t("homeMiniStatProgressStable"),
+        trend: "neutral" as const,
+        indicatorValue: 0.45,
+      };
+    }
+    return {
+      value: formatTemplate(t("homeMiniStatProgressUp"), { pct: delta }),
+      trend: "up" as const,
+      indicatorValue: Math.max(0.45, Math.min(1, 0.5 + delta / 180)),
+    };
+  }, [weeklyProgress, t]);
+
+  const startFeaturedSession = () => {
+    if (!featuredProgram) {
+      openWorkouts();
+      return;
+    }
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push({ pathname: "/program/[id]", params: { id: featuredProgram.id } });
+    router.push({ pathname: "/session/[id]", params: { id: featuredProgram.id } });
   };
+
+  const openWorkouts = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push("/workouts");
+  };
+
+  const openFeed = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push("/feed");
+  };
+
+  const openSuggestedProgram = () => {
+    if (!suggestedProgram) {
+      openWorkouts();
+      return;
+    }
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    router.push({ pathname: "/program/[id]", params: { id: suggestedProgram.id } });
+  };
+
+  const statItems = useMemo<MiniStatCardData[]>(
+    () => [
+      {
+        id: "streak",
+        title: t("homeMiniStatStreak"),
+        value: `${streakDays}`,
+        delta: streakDays > 0 ? `+${Math.min(streakDays, 7)}j` : undefined,
+        helperText: formatTemplate(t("homeMiniStatStreakMeta"), { days: streakDays }),
+        trend: streakDays > 0 ? "up" : "neutral",
+        indicatorValue: Math.min(1, streakDays / 7),
+        accentColor: colors.accent,
+      },
+      {
+        id: "volume",
+        title: t("homeMiniStatVolume"),
+        value: `${formatCompactNumber(weeklyVolumeMinutes)}m`,
+        helperText: formatTemplate(t("homeMiniStatVolumeMeta"), {
+          sessions: weeklyChallenge.completedSessions,
+        }),
+        trend: weeklyVolumeMinutes > 0 ? "up" : "neutral",
+        indicatorValue: weeklyChallenge.progress,
+      },
+      {
+        id: "sessions",
+        title: t("homeMiniStatSessions"),
+        value: `${weeklyChallenge.completedSessions}/${weeklyChallenge.targetSessions}`,
+        delta: `${Math.round(weeklyChallenge.progress * 100)}%`,
+        helperText: t("homeMiniStatSessionsMeta"),
+        trend: weeklyChallenge.progress > 0 ? "up" : "neutral",
+        indicatorValue: weeklyChallenge.progress,
+        accentColor: colors.success,
+      },
+      {
+        id: "progress",
+        title: t("homeMiniStatProgress"),
+        value: recentProgress.value,
+        helperText: t("homeMiniStatProgressMeta"),
+        trend: recentProgress.trend,
+        indicatorValue: recentProgress.indicatorValue,
+      },
+    ],
+    [
+      t,
+      colors.accent,
+      colors.success,
+      streakDays,
+      weeklyVolumeMinutes,
+      weeklyChallenge.completedSessions,
+      weeklyChallenge.targetSessions,
+      weeklyChallenge.progress,
+      recentProgress,
+    ]
+  );
+
+  const contextMessage = streakDays > 0
+    ? formatTemplate(t("homeContextStreak"), { days: streakDays })
+    : t("homeContextStart");
+
+  const motivationText = streakDays >= 3
+    ? formatTemplate(t("homeMotivationStreak"), { days: streakDays })
+    : t("homeMotivationDefault");
+  const hasCompletedSessions = sessions.some((session) => session.completed);
 
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
-  const webBottomPadding = Platform.OS === "web" ? 34 : 0;
+
+  if (!isLoaded) {
+    return (
+      <ScrollView
+        style={[styles.container, { backgroundColor: colors.background }]}
+        contentInsetAdjustmentBehavior="never"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{
+          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
+          paddingBottom: (Platform.OS === "web" ? 34 : insets.bottom) + 100,
+          paddingHorizontal: Math.max(layout.screenPadding, 16),
+          gap: spacing[2],
+        }}
+      >
+        <SkeletonCard height={96} lines={3} />
+        <SkeletonCard height={248} lines={4} />
+        <View style={styles.homeSkeletonStats}>
+          <SkeletonCard height={136} lines={3} style={styles.homeSkeletonStatCard} />
+          <SkeletonCard height={136} lines={3} style={styles.homeSkeletonStatCard} />
+          <SkeletonCard height={136} lines={3} style={styles.homeSkeletonStatCard} />
+        </View>
+        <SkeletonCard height={198} lines={4} />
+      </ScrollView>
+    );
+  }
 
   return (
     <ScrollView
-      style={[styles.container, { backgroundColor: theme.background }]}
-      contentInsetAdjustmentBehavior="automatic"
+      style={[styles.container, { backgroundColor: colors.background }]}
+      contentInsetAdjustmentBehavior="never"
       showsVerticalScrollIndicator={false}
+      bounces
       contentContainerStyle={{
-        paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 16,
-        paddingBottom: Platform.OS === "web" ? webBottomPadding + 100 : 100,
+        paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
+        paddingBottom: (Platform.OS === "web" ? 34 : insets.bottom) + 100,
+        paddingHorizontal: Math.max(layout.screenPadding, 16),
+        gap: spacing[2],
       }}
     >
-      <Animated.View entering={FadeInDown.duration(400)} style={styles.header}>
-        <View>
-          <Text style={[styles.greeting, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
-            {getGreeting(language, t)}
-          </Text>
-          <Text style={[styles.profileName, { color: theme.text, fontFamily: "Outfit_800ExtraBold" }]}>
-            {displayName}
-          </Text>
-        </View>
-        {streakDays > 0 && (
-          <View style={[styles.streakBadge, { backgroundColor: theme.accent + "20" }]}>
-            <Ionicons name="flame" size={16} color={theme.accent} />
-            <Text style={[styles.streakText, { color: theme.accent, fontFamily: "Outfit_700Bold" }]}>
-              {streakDays}
-            </Text>
-          </View>
-        )}
-      </Animated.View>
-
-      <Animated.View entering={FadeInDown.delay(80).duration(400)} style={styles.quoteCard}>
-        <LinearGradient
-          colors={["#FF6B2C", "#FF4D00"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.quoteGradient}
-        >
-          <Ionicons name="flash" size={20} color="rgba(255,255,255,0.8)" />
-          <Text style={[styles.quoteText, { fontFamily: "Outfit_600SemiBold" }]}>{quote}</Text>
-        </LinearGradient>
-      </Animated.View>
-
-      <View style={styles.statsRow}>
-        <StatCard
-          value={totalWorkouts}
-          label={t("totalWorkouts")}
-          icon={<Ionicons name="barbell-outline" size={20} color={theme.accent} />}
-          color={theme.accent}
-          delay={120}
+      <Animated.View entering={FadeInDown.duration(360)}>
+        <ContextualHeader
+          greetingLabel={`${t("homeWelcomeBack")} · ${t(getGreetingKey())}`}
+          firstName={firstName}
+          contextMessage={contextMessage}
+          streakDays={streakDays}
+          onQuickAction={openFeed}
         />
-        <StatCard
-          value={totalMinutes}
-          label={t("totalMinutes")}
-          icon={<Ionicons name="time-outline" size={20} color="#4CAF7D" />}
-          color="#4CAF7D"
-          delay={150}
+      </Animated.View>
+
+      <Animated.View entering={FadeInDown.delay(60).duration(380)}>
+        <HeroWorkoutCard
+          badgeLabel={t("homeTodaySession")}
+          title={featuredProgram ? t(featuredProgram.nameKey as TranslationKey) : undefined}
+          subtitle={
+            featuredProgram
+              ? `${featuredProgram.durationMin} ${t("minutes")} · ${t(
+                  featuredProgram.difficulty as TranslationKey
+                )} · ${categoryLabel(featuredProgram, t)}`
+              : undefined
+          }
+          metaItems={
+            featuredProgram
+              ? [
+                  {
+                    label: t("homeHeroMetaDuration"),
+                    value: `${featuredProgram.durationMin} ${t("minutes")}`,
+                    icon: "time-outline",
+                  },
+                  {
+                    label: t("homeHeroMetaLevel"),
+                    value: t(featuredProgram.difficulty as TranslationKey),
+                    icon: "barbell-outline",
+                  },
+                  {
+                    label: t("homeHeroMetaFocus"),
+                    value: categoryLabel(featuredProgram, t),
+                    icon: "fitness-outline",
+                  },
+                ]
+              : []
+          }
+          primaryCtaLabel={t("homeHeroCtaStart")}
+          onPrimaryCtaPress={startFeaturedSession}
+          secondaryCtaLabel={t("homeHeroCtaAlternate")}
+          onSecondaryCtaPress={openWorkouts}
+          isEmpty={!featuredProgram}
+          emptyTitle={t("homeHeroEmptyTitle")}
+          emptySubtitle={t("homeHeroEmptySubtitle")}
+          emptyPrimaryCtaLabel={t("homeHeroEmptyCta")}
+          onEmptyPrimaryCtaPress={openWorkouts}
         />
-        <StatCard
-          value={totalCalories}
-          label={t("caloriesBurned")}
-          icon={<Ionicons name="flame-outline" size={20} color="#FFB547" />}
-          color="#FFB547"
-          delay={180}
-        />
-      </View>
-
-      <Animated.View entering={FadeInDown.delay(220).duration(400)} style={[styles.section, { backgroundColor: theme.card }]}>
-        <Text style={[styles.sectionTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
-          {t("weeklyProgress")}
-        </Text>
-        <View style={styles.weekRow}>
-          {weeklyProgress.map((val, i) => (
-            <WeekBar
-              key={i}
-              value={val}
-              label={weekLabels[i]}
-              isToday={i === 6}
-              onPress={() => handleBarPress(i)}
-            />
-          ))}
-        </View>
       </Animated.View>
 
-      <Animated.View entering={FadeInRight.delay(280).duration(400)}>
-        <Text style={[styles.sectionHeader, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
-          {t("todayWorkout")}
-        </Text>
-        <Pressable
-          onPress={handleProgramPress}
-          style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1, transform: [{ scale: pressed ? 0.98 : 1 }] }]}
-        >
-          <LinearGradient
-            colors={featuredProgram.gradient as [string, string]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.featuredCard}
-          >
-            <View style={styles.featuredContent}>
-              <View>
-                <Text style={[styles.featuredTag, { fontFamily: "Outfit_600SemiBold" }]}>
-                  {t(featuredProgram.nameKey as any)}
-                </Text>
-                <Text style={[styles.featuredTitle, { fontFamily: "Outfit_800ExtraBold" }]}>
-                  {t(featuredProgram.type === "home" ? "homeWorkouts" : "gymWorkouts")}
-                </Text>
-                <View style={styles.featuredMeta}>
-                  <Ionicons name="time-outline" size={14} color="rgba(255,255,255,0.85)" />
-                  <Text style={[styles.featuredMetaText, { fontFamily: "Outfit_500Medium" }]}>
-                    {featuredProgram.durationMin} {t("minutes")}
-                  </Text>
-                  <Text style={[styles.featuredMetaText, { fontFamily: "Outfit_500Medium" }]}>
-                    · {featuredProgram.workouts.length} {t("exercises")}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.startBtn}>
-                <Ionicons name="play" size={20} color="#FF6B2C" />
-              </View>
-            </View>
-          </LinearGradient>
-        </Pressable>
+      <Animated.View entering={FadeInDown.delay(120).duration(380)}>
+        <MiniStatCarousel items={statItems} />
       </Animated.View>
 
-      <Animated.View entering={FadeInDown.delay(340).duration(400)}>
-        <Text style={[styles.sectionHeader, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
-          {t("exercises")}
-        </Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.exerciseRow}>
-          {EXERCISES.slice(0, 6).map((ex, i) => (
-            <Pressable
-              key={ex.id}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                router.push({ pathname: "/exercise/[id]", params: { id: ex.id } });
-              }}
-              style={({ pressed }) => [
-                styles.exerciseCard,
-                { backgroundColor: theme.card, opacity: pressed ? 0.85 : 1, transform: [{ scale: pressed ? 0.96 : 1 }] },
-              ]}
-            >
-              <View style={[styles.exerciseIconWrap, { backgroundColor: ex.imageColor + "25" }]}>
-                <MaterialCommunityIcons name="dumbbell" size={28} color={ex.imageColor} />
-              </View>
-              <Text style={[styles.exerciseName, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]} numberOfLines={2}>
-                {ex.translations[language as keyof typeof ex.translations]?.name ?? ex.translations.en.name}
-              </Text>
-              <Text style={[styles.exerciseMeta, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
-                {t(ex.difficulty)} · {ex.calories} {t("kcal")}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </Animated.View>
-
-      <Modal
-        visible={selectedDay !== null}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setSelectedDay(null)}
-      >
-        <Pressable style={styles.dayModalOverlay} onPress={() => setSelectedDay(null)}>
-          <Pressable style={[styles.dayModalSheet, { backgroundColor: theme.card }]} onPress={() => {}}>
-            <View style={[styles.dayModalHandle, { backgroundColor: theme.border }]} />
-            <Text style={[styles.dayModalTitle, { color: theme.text, fontFamily: "Outfit_700Bold" }]}>
-              {selectedDay?.label} — {selectedDay?.date.toLocaleDateString()}
-            </Text>
-
-            {selectedDay && selectedDay.sessions.length === 0 ? (
-              <View style={styles.dayModalEmpty}>
-                <Ionicons name="moon-outline" size={36} color={theme.textMuted} />
-                <Text style={[styles.dayModalEmptyText, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
-                  {t("noHistoryYet")}
-                </Text>
-              </View>
-            ) : (
-              selectedDay?.sessions.map((s) => {
-                const prog = PROGRAMS.find((p) => p.id === s.programId);
-                const progName = prog ? t(prog.nameKey as Parameters<typeof t>[0]) : s.programId;
-                return (
-                  <View key={s.id} style={[styles.daySessionRow, { borderBottomColor: theme.border }]}>
-                    <View style={[styles.daySessionIcon, { backgroundColor: theme.accent + "20" }]}>
-                      <Ionicons
-                        name={s.type === "cardio" ? "heart-outline" : "barbell-outline"}
-                        size={18}
-                        color={theme.accent}
-                      />
-                    </View>
-                    <View style={styles.daySessionInfo}>
-                      <Text style={[styles.daySessionName, { color: theme.text, fontFamily: "Outfit_600SemiBold" }]}>
-                        {progName}
-                      </Text>
-                      <Text style={[styles.daySessionMeta, { color: theme.textSecondary, fontFamily: "Outfit_400Regular" }]}>
-                        {s.durationMin} {t("minutes")} · {s.calories} {t("kcal")}
-                      </Text>
-                    </View>
-                    {s.completed && <Ionicons name="checkmark-circle" size={20} color={theme.success} />}
-                  </View>
-                );
-              })
-            )}
-
-            <Pressable
-              onPress={() => setSelectedDay(null)}
-              style={({ pressed }) => [styles.dayModalClose, { backgroundColor: theme.accent, opacity: pressed ? 0.85 : 1 }]}
-            >
-              <Text style={[styles.dayModalCloseText, { fontFamily: "Outfit_600SemiBold" }]}>{t("close")}</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+      {hasCompletedSessions ? (
+        <Animated.View entering={FadeInDown.delay(180).duration(380)}>
+          <MotivationQuickStart
+            motivationLabel={t("homeMotivationTitle")}
+            motivationText={motivationText}
+            quickStartLabel={t("homeQuickStartTitle")}
+            primaryActionLabel={t("homeHeroCtaStart")}
+            secondaryActionLabel={t("homeQuickStartSecondary")}
+            onPrimaryAction={startFeaturedSession}
+            onSecondaryAction={openSuggestedProgram}
+          />
+        </Animated.View>
+      ) : (
+        <Animated.View entering={FadeInDown.delay(180).duration(380)}>
+          <StateCard
+            title={t("homeStateNewTitle")}
+            description={t("homeStateNewDescription")}
+            actionLabel={t("homeStateNewAction")}
+            onActionPress={openWorkouts}
+            style={styles.homeStateCard}
+          />
+        </Animated.View>
+      )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    marginBottom: 20,
+  container: {
+    flex: 1,
   },
-  greeting: { fontSize: 14, marginBottom: 2 },
-  profileName: { fontSize: 26 },
-  streakBadge: {
+  homeSkeletonStats: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    gap: 10,
+  },
+  homeSkeletonStatCard: {
+    flex: 1,
+  },
+  homeStateCard: {
     borderRadius: 20,
   },
-  streakText: { fontSize: 16 },
-  quoteCard: { marginHorizontal: 20, marginBottom: 20, borderRadius: 16, overflow: "hidden" },
-  quoteGradient: { padding: 16, gap: 8, flexDirection: "row", alignItems: "flex-start" },
-  quoteText: { color: "#fff", fontSize: 13, flex: 1, lineHeight: 20 },
-  statsRow: { flexDirection: "row", paddingHorizontal: 20, gap: 10, marginBottom: 20 },
-  statCard: {
-    flex: 1,
-    borderRadius: 14,
-    padding: 14,
-    alignItems: "center",
-    gap: 6,
-  },
-  statIconWrap: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  statValue: { fontSize: 20, lineHeight: 24 },
-  statLabel: { fontSize: 10, textAlign: "center" },
-  section: { marginHorizontal: 20, borderRadius: 16, padding: 16, marginBottom: 20 },
-  sectionTitle: { fontSize: 16, marginBottom: 12 },
-  weekRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end" },
-  weekBarContainer: { alignItems: "center", gap: 6 },
-  weekBarBg: {
-    width: 28,
-    height: 60,
-    borderRadius: 8,
-    justifyContent: "flex-end",
-    overflow: "hidden",
-  },
-  weekBarFill: { width: "100%", borderRadius: 8 },
-  weekBarLabel: { fontSize: 10 },
-  sectionHeader: { fontSize: 18, paddingHorizontal: 20, marginBottom: 14 },
-  featuredCard: { marginHorizontal: 20, borderRadius: 20, padding: 20, marginBottom: 20 },
-  featuredContent: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  featuredTag: { color: "rgba(255,255,255,0.7)", fontSize: 12, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 },
-  featuredTitle: { color: "#fff", fontSize: 22, marginBottom: 8 },
-  featuredMeta: { flexDirection: "row", alignItems: "center", gap: 4 },
-  featuredMetaText: { color: "rgba(255,255,255,0.85)", fontSize: 13 },
-  startBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#fff",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  exerciseRow: { paddingLeft: 20 },
-  exerciseCard: {
-    width: 130,
-    borderRadius: 16,
-    padding: 14,
-    marginRight: 12,
-    gap: 8,
-    marginBottom: 4,
-  },
-  exerciseIconWrap: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  exerciseName: { fontSize: 14, lineHeight: 18 },
-  exerciseMeta: { fontSize: 11 },
-  dayModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  dayModalSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 40 },
-  dayModalHandle: { width: 40, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 20 },
-  dayModalTitle: { fontSize: 20, marginBottom: 16 },
-  dayModalEmpty: { alignItems: "center", paddingVertical: 30, gap: 10 },
-  dayModalEmptyText: { fontSize: 14 },
-  daySessionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-  },
-  daySessionIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  daySessionInfo: { flex: 1 },
-  daySessionName: { fontSize: 15, marginBottom: 2 },
-  daySessionMeta: { fontSize: 12 },
-  dayModalClose: { height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center", marginTop: 16 },
-  dayModalCloseText: { color: "#fff", fontSize: 15 },
 });
