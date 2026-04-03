@@ -19,7 +19,7 @@ function pickQueryParams(query, allowed) {
 }
 
 // GET /api/exercises
-router.get('/', authRequired, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const qs = pickQueryParams(req.query, ALLOWED_EXERCISE_PARAMS);
     const data = await getExercises(qs);
@@ -31,7 +31,7 @@ router.get('/', authRequired, async (req, res) => {
 });
 
 // GET /api/exercises/muscle-groups
-router.get('/muscle-groups', authRequired, async (_req, res) => {
+router.get('/muscle-groups', async (_req, res) => {
   try {
     const data = await getMuscleGroups();
     return res.json(data);
@@ -42,7 +42,7 @@ router.get('/muscle-groups', authRequired, async (_req, res) => {
 });
 
 // GET /api/exercises/types
-router.get('/types', authRequired, async (_req, res) => {
+router.get('/types', async (_req, res) => {
   try {
     const data = await getExerciseTypes();
     return res.json(data);
@@ -53,7 +53,7 @@ router.get('/types', authRequired, async (_req, res) => {
 });
 
 // GET /api/exercises/workout/generate
-router.get('/workout/generate', authRequired, async (req, res) => {
+router.get('/workout/generate', async (req, res) => {
   try {
     const qs = pickQueryParams(req.query, ALLOWED_WORKOUT_PARAMS);
     const data = await generateWorkout(qs);
