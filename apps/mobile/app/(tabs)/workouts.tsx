@@ -183,6 +183,30 @@ export default function WorkoutsScreen() {
           </Pressable>
         </Animated.View>
 
+        <Animated.View entering={FadeInDown.delay(40).duration(380)} style={[styles.exercisesLinkRow, { paddingHorizontal: 20 }]}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              router.push("/exercises" as any);
+            }}
+            style={({ pressed }) => [
+              styles.exercisesLink,
+              {
+                backgroundColor: theme.card,
+                borderColor: theme.border,
+                opacity: pressed ? 0.82 : 1,
+              },
+            ]}
+          >
+            <Ionicons name="barbell-outline" size={16} color={theme.accent} />
+            <Text style={[styles.exercisesLinkText, { color: theme.text, fontFamily: Typography.bodySemiBold }]}>
+              Voir tous les exercices
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} style={styles.exercisesLinkChevron} />
+          </Pressable>
+        </Animated.View>
+
         <Animated.View entering={FadeInDown.delay(60).duration(380)} style={styles.tabsRow}>
           {TABS.map((tab) => (
             <Chip
@@ -536,6 +560,26 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 13,
     lineHeight: 18,
+  },
+  exercisesLinkRow: {
+    marginBottom: 16,
+  },
+  exercisesLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+  exercisesLinkText: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  exercisesLinkChevron: {
+    marginLeft: "auto",
   },
   fab: {
     position: "absolute",
