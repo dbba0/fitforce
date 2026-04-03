@@ -20,6 +20,8 @@ const userSchema = new mongoose.Schema(
     isPremium: { type: Boolean, default: false },
     streakDays: { type: Number, default: 0 },
     lastWorkoutDate: { type: Date },
+    following: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     privacy: {
       showProfile: { type: Boolean, default: true },
       showGoals: { type: Boolean, default: true },

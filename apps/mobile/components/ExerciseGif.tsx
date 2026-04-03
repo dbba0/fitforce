@@ -1,36 +1,44 @@
 import React, { ReactNode, useEffect, useMemo, useState } from "react";
-import { StyleProp, StyleSheet, View, ViewStyle } from "react-native";
+import { ActivityIndicator, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import { Image } from "expo-image";
 
 type ExerciseGifProps = {
   exerciseDbId?: string;
+  imageUrl?: string;
   fallback: ReactNode;
   size?: number;
   style?: StyleProp<ViewStyle>;
   backgroundColor?: string;
   borderColor?: string;
+  showLoader?: boolean;
 };
 
 export default function ExerciseGif({
   exerciseDbId,
+  imageUrl,
   fallback,
   size = 190,
   style,
   backgroundColor = "#101218",
   borderColor = "#2A2E37",
+  showLoader = true,
 }: ExerciseGifProps) {
   const [loadFailed, setLoadFailed] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  const gifUrl = useMemo(() => {
+  const visualUrl = useMemo(() => {
+    const directImage = imageUrl?.trim();
+    if (directImage) return directImage;
     if (!exerciseDbId) return null;
     return `https://v2.exercisedb.io/image/${exerciseDbId}.gif`;
-  }, [exerciseDbId]);
+  }, [exerciseDbId, imageUrl]);
 
   useEffect(() => {
     setLoadFailed(false);
-  }, [exerciseDbId]);
+    setLoading(true);
+  }, [exerciseDbId, imageUrl]);
 
-  if (!gifUrl || loadFailed) {
+  if (!visualUrl || loadFailed) {
     return <>{fallback}</>;
   }
 
@@ -46,20 +54,40 @@ export default function ExerciseGif({
       ]}
     >
       <Image
-        source={{ uri: gifUrl }}
+        source={{ uri: visualUrl }}
         style={[
           styles.image,
           {
             width: size,
             height: size,
+            opacity: showLoader && loading ? 0 : 1,
           },
         ]}
         contentFit="contain"
         autoplay
         cachePolicy="memory-disk"
         transition={150}
-        onError={() => setLoadFailed(true)}
+        onLoad={() => setLoading(false)}
+        onError={() => {
+          setLoading(false);
+          setLoadFailed(true);
+        }}
       />
+      {showLoader && loading ? (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            right: 0,
+            bottom: 0,
+            left: 0,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <ActivityIndicator size="small" color="#F55F2B" />
+        </View>
+      ) : null}
     </View>
   );
 }

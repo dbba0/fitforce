@@ -1,214 +1,165 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
+  Animated,
+  Easing,
   FlatList,
-  Keyboard,
   Platform,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
-  TextInput,
-  useColorScheme,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
+import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQuery } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams } from "expo-router";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useWorkout } from "@/contexts/WorkoutContext";
-import {
-  BottomSheet,
-  Card,
-  EmptyState,
-  IconButton,
-  PillTabs,
-  PostCard,
-  PrimaryButton,
-  SkeletonCard,
-  SectionLabel,
-} from "@/components/ui";
-import { apiRequest, queryClient } from "@/lib/query-client";
-import { TranslationKey } from "@/lib/i18n";
-import { Colors } from "@/constants/colors";
+import { useAppTheme } from "@/hooks";
+import { apiRequest } from "@/lib/query-client";
+import { Avatar, Badge, FeedbackToast, PrimaryButton, SectionLabel } from "@/components/ui";
 import { Typography } from "@/constants/typography";
-import { PROGRAMS } from "@/data/programs";
 
-type PostType = "workout" | "achievement" | "progress" | "update";
+type ActivityType = "run" | "ride" | "walk" | "workout";
 
-type FeedPost = {
+type ActivityUser = {
+  id?: string;
+  displayName?: string;
+  avatarUrl?: string | null;
+};
+
+type FeedActivity = {
   id: string;
-  type: PostType;
-  content: string;
-  workoutData?: {
-    durationMin?: number;
-    calories?: number;
-    programId?: string;
-    type?: string;
-  } | null;
-  createdAt: string;
-  author?: {
-    id?: string;
-    displayName?: string;
-  } | null;
-  likeCount?: number;
+  type: ActivityType;
+  title: string;
+  startedAt?: string | null;
+  durationSeconds?: number;
+  distanceMeters?: number;
+  avgPaceSecPerKm?: number;
+  kudosCount?: number;
   likedByMe?: boolean;
+  user?: ActivityUser | null;
 };
 
-const TYPE_VARIANT: Record<PostType, "ember" | "mint" | "gold" | "sky"> = {
-  workout: "ember",
-  achievement: "gold",
-  progress: "mint",
-  update: "sky",
+type FeedResponse = {
+  activities: FeedActivity[];
 };
+
+type ActivityOverride = {
+  likedByMe: boolean;
+  kudosCount: number;
+};
+
+const DATA_SURFACE = "#1A1A1A";
 
 function getInitials(name: string): string {
   return (name || "?")
     .split(" ")
     .filter(Boolean)
-    .map((item) => item[0])
+    .map((part) => part[0])
     .join("")
-    .toUpperCase()
-    .slice(0, 2);
+    .slice(0, 2)
+    .toUpperCase();
 }
 
-function timeAgo(dateStr: string, t: (key: TranslationKey) => string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diffMin = Math.max(0, Math.floor((now - then) / 60000));
-  if (diffMin < 1) return t("justNow");
-  if (diffMin < 60) return `${diffMin}m`;
-  const diffH = Math.floor(diffMin / 60);
-  if (diffH < 24) return `${diffH}h`;
-  const diffD = Math.floor(diffH / 24);
-  if (diffD < 7) return `${diffD}d`;
-  return `${Math.floor(diffD / 7)}w`;
+function formatDistance(meters: number): string {
+  if (meters <= 0) return "0.00 km";
+  return `${(meters / 1000).toFixed(2)} km`;
 }
 
-function readParam(value: string | string[] | undefined): string | undefined {
-  if (Array.isArray(value)) return value[0];
-  return typeof value === "string" ? value : undefined;
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0 min";
+  const total = Math.floor(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}min`;
+  return `${Math.max(1, minutes)} min`;
 }
 
-function FeedPostItem({ post }: { post: FeedPost }) {
-  const { t } = useLanguage();
-  const { user } = useAuth();
+function formatPace(secondsPerKm: number | undefined): string {
+  if (!secondsPerKm || !Number.isFinite(secondsPerKm) || secondsPerKm <= 0) return "-- /km";
+  const minutes = Math.floor(secondsPerKm / 60);
+  const seconds = Math.floor(secondsPerKm % 60);
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")} /km`;
+}
 
-  const isOwnPost = user?.id && post.author?.id && user.id === post.author.id;
-  const authorName = post.author?.displayName || t("unknownUser");
+function formatDate(dateIso: string | undefined | null, todayLabel: string, yesterdayLabel: string): string {
+  if (!dateIso) return "-";
+  const date = new Date(dateIso);
+  if (Number.isNaN(date.getTime())) return "-";
 
-  const likeMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/posts/${post.id}/like`);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/feed"] });
-    },
-  });
+  const target = new Date(date);
+  target.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
 
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      await apiRequest("DELETE", `/api/posts/${post.id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/feed"] });
-    },
-  });
+  if (target.getTime() === today.getTime()) return todayLabel;
+  if (target.getTime() === yesterday.getTime()) return yesterdayLabel;
+  return new Intl.DateTimeFormat(undefined, { day: "2-digit", month: "short" }).format(date);
+}
 
-  const workoutSummary = useMemo(() => {
-    if (!post.workoutData) return undefined;
+function PulseSkeletons() {
+  const opacity = React.useRef(new Animated.Value(0.3)).current;
 
-    const program = PROGRAMS.find((item) => item.id === post.workoutData?.programId);
-    const programLabel = program ? t(program.nameKey as TranslationKey) : t("workout");
-
-    return [
-      {
-        value: `${post.workoutData.durationMin ?? 0} ${t("minutes")}`,
-        label: t("sessionDurationLabel"),
-      },
-      {
-        value: `${post.workoutData.calories ?? 0} ${t("kcal")}`,
-        label: t("sessionBurnedLabel"),
-      },
-      {
-        value: programLabel,
-        label: t("programs"),
-      },
-    ];
-  }, [post.workoutData, t]);
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, {
+          toValue: 0.7,
+          duration: 800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 0.3,
+          duration: 800,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [opacity]);
 
   return (
-    <PostCard
-      post={{
-        author: authorName,
-        initials: getInitials(authorName),
-        content: post.content,
-        type: post.type,
-        typeLabel: t(post.type as TranslationKey),
-        badgeLabel: t(post.type as TranslationKey).toUpperCase(),
-        badgeVariant: TYPE_VARIANT[post.type],
-        timeLabel: timeAgo(post.createdAt, t),
-        workoutSummary,
-        likeCount: post.likeCount || 0,
-        commentCount: 0,
-        liked: !!post.likedByMe,
-      }}
-      onLike={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        likeMutation.mutate();
-      }}
-      onComment={() => {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      }}
-      onDelete={
-        isOwnPost
-          ? () => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              deleteMutation.mutate();
-            }
-          : undefined
-      }
-      style={styles.postCard}
-    />
+    <Animated.View style={[styles.skeletonWrap, { opacity }]}>
+      <View style={styles.skeletonCard} />
+      <View style={styles.skeletonCard} />
+      <View style={styles.skeletonCard} />
+    </Animated.View>
   );
 }
 
 function GuestPrompt() {
   const { t } = useLanguage();
   const { logout } = useAuth();
+  const { colors } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}> 
-      <View style={[styles.header, { paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16 }]}> 
-        <Text
-          style={[styles.title, { color: theme.text, fontFamily: Typography.titleStrong }]}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-          adjustsFontSizeToFit
-          minimumFontScale={0.82}
-        >
-          {t("communityTitle")}
-        </Text>
-      </View>
-
-      <View style={styles.guestPromptWrap}>
-        <Ionicons name="lock-closed-outline" size={48} color={theme.textMuted} />
-        <Text style={[styles.guestPromptTitle, { color: theme.text, fontFamily: Typography.title }]}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      <View
+        style={[
+          styles.guestContent,
+          { paddingTop: Platform.OS === "web" ? webTopPadding + 16 : insets.top + 16 },
+        ]}
+      >
+        <View style={[styles.guestIconWrap, { backgroundColor: DATA_SURFACE, borderColor: colors.border }]}>
+          <Ionicons name="lock-closed-outline" size={28} color={colors.textMuted} />
+        </View>
+        <Text style={[styles.guestTitle, { color: colors.text, fontFamily: Typography.titleStrong }]}>
           {t("loginToAccess")}
         </Text>
-        <Text style={[styles.guestPromptText, { color: theme.textSecondary, fontFamily: Typography.bodyRegular }]}>
+        <Text style={[styles.guestBody, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
           {t("guestModePrompt")}
         </Text>
-        <PrimaryButton label={t("login")} onPress={() => logout()} style={styles.guestLoginBtn} />
+        <PrimaryButton label={t("login")} onPress={() => logout()} style={styles.guestButton} />
       </View>
     </View>
   );
@@ -216,423 +167,442 @@ function GuestPrompt() {
 
 export default function FeedScreen() {
   const { t } = useLanguage();
-  const { isGuest, user } = useAuth();
-  const { sessions } = useWorkout();
-  const searchParams = useLocalSearchParams<{
-    autoPostToken?: string | string[];
-    autoPostType?: string | string[];
-    autoPostProgramId?: string | string[];
-    autoPostDuration?: string | string[];
-    autoPostCalories?: string | string[];
-    autoPostExercises?: string | string[];
-    autoPostPrCount?: string | string[];
-    autoPostContent?: string | string[];
-  }>();
+  const { isGuest } = useAuth();
+  const { colors, layout } = useAppTheme();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
   const webTopPadding = Platform.OS === "web" ? 67 : 0;
-  const lastAutoTokenRef = useRef<string | null>(null);
 
-  const [composerVisible, setComposerVisible] = useState(false);
-  const [postContent, setPostContent] = useState("");
-  const [postType, setPostType] = useState<PostType>("workout");
-  const [includeLatestSession, setIncludeLatestSession] = useState(true);
-  const [prefilledWorkoutData, setPrefilledWorkoutData] = useState<FeedPost["workoutData"] | null>(null);
-  const [composerPrefilled, setComposerPrefilled] = useState(false);
-  const [localPosts, setLocalPosts] = useState<FeedPost[]>([]);
+  const [optimisticById, setOptimisticById] = useState<Record<string, ActivityOverride>>({});
+  const [pendingById, setPendingById] = useState<Record<string, boolean>>({});
+  const [isManualRefreshing, setIsManualRefreshing] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const { data, isLoading, refetch } = useQuery<{ posts: FeedPost[] }>({
-    queryKey: ["/api/feed"],
+  const { data, isLoading, isRefetching, refetch } = useQuery<FeedResponse>({
+    queryKey: ["/api/activities/feed"],
+    enabled: !isGuest,
   });
 
-  const latestSession = useMemo(() => {
-    if (!sessions?.length) return null;
-    const sorted = [...sessions].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-    return sorted[0] ?? null;
-  }, [sessions]);
-
-  const latestSessionPreview = useMemo(() => {
-    if (!latestSession) return null;
-    const program = PROGRAMS.find((item) => item.id === latestSession.programId);
-    const programLabel = program ? t(program.nameKey as TranslationKey) : t("workout");
-    return {
-      title: `${programLabel} · ${latestSession.durationMin} ${t("minutes")} · ${latestSession.calories} ${t("kcal")}`,
-      subtitle: t("feedSessionTapInclude"),
-      workoutData: {
-        programId: latestSession.programId,
-        durationMin: latestSession.durationMin,
-        calories: latestSession.calories,
-        type: latestSession.type || "strength",
-      },
-    };
-  }, [latestSession, t]);
-
-  const prefilledSessionPreview = useMemo(() => {
-    if (!prefilledWorkoutData) return null;
-    const program = PROGRAMS.find((item) => item.id === prefilledWorkoutData.programId);
-    const programLabel = program ? t(program.nameKey as TranslationKey) : t("workout");
-    return {
-      title: `${programLabel} · ${prefilledWorkoutData.durationMin ?? 0} ${t("minutes")} · ${prefilledWorkoutData.calories ?? 0} ${t("kcal")}`,
-      subtitle: t("feedAutoPostReady"),
-    };
-  }, [prefilledWorkoutData, t]);
+  const activities = useMemo(() => {
+    const base = data?.activities ?? [];
+    return base.map((activity) => {
+      const override = optimisticById[activity.id];
+      if (!override) return activity;
+      return {
+        ...activity,
+        likedByMe: override.likedByMe,
+        kudosCount: override.kudosCount,
+      };
+    });
+  }, [data?.activities, optimisticById]);
 
   useEffect(() => {
-    const autoToken = readParam(searchParams.autoPostToken);
-    if (!autoToken || lastAutoTokenRef.current === autoToken) return;
-    lastAutoTokenRef.current = autoToken;
+    if (!toastMessage) return;
+    const timer = setTimeout(() => setToastMessage(null), 1800);
+    return () => clearTimeout(timer);
+  }, [toastMessage]);
 
-    const content = readParam(searchParams.autoPostContent) ?? "";
-    const programId = readParam(searchParams.autoPostProgramId);
-    const duration = Number(readParam(searchParams.autoPostDuration) ?? 0);
-    const calories = Number(readParam(searchParams.autoPostCalories) ?? 0);
-
-    setPostType("workout");
-    setPostContent(content);
-    setComposerVisible(true);
-    setComposerPrefilled(true);
-    setIncludeLatestSession(false);
-
-    if (programId && Number.isFinite(duration) && Number.isFinite(calories)) {
-      setPrefilledWorkoutData({
-        programId,
-        durationMin: Math.max(0, Math.round(duration)),
-        calories: Math.max(0, Math.round(calories)),
-        type: "strength",
-      });
-    } else {
-      setPrefilledWorkoutData(null);
+  const refreshFeed = async () => {
+    setIsManualRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setIsManualRefreshing(false);
     }
-
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  }, [searchParams]);
-
-  const createMutation = useMutation({
-    mutationFn: async () => {
-      const payload: Record<string, unknown> = {
-        type: postType,
-        content: postContent,
-      };
-
-      if (postType === "workout") {
-        if (prefilledWorkoutData) {
-          payload.workoutData = prefilledWorkoutData;
-        } else if (includeLatestSession && latestSessionPreview?.workoutData) {
-          payload.workoutData = latestSessionPreview.workoutData;
-        }
-      }
-
-      const res = await apiRequest("POST", "/api/posts", payload);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/feed"] });
-      setComposerVisible(false);
-      setPostContent("");
-      setPostType("workout");
-      setIncludeLatestSession(true);
-      setPrefilledWorkoutData(null);
-      setComposerPrefilled(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    },
-    onError: () => {
-      const localPost: FeedPost = {
-        id: `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        type: postType,
-        content: postContent,
-        workoutData:
-          postType === "workout"
-            ? prefilledWorkoutData ?? (includeLatestSession ? latestSessionPreview?.workoutData ?? null : null)
-            : null,
-        createdAt: new Date().toISOString(),
-        author: {
-          id: user?.id ?? "local-user",
-          displayName: user?.displayName ?? t("unknownUser"),
-        },
-        likeCount: 0,
-        likedByMe: false,
-      };
-      setLocalPosts((prev) => [localPost, ...prev]);
-      setComposerVisible(false);
-      setPostContent("");
-      setPostType("workout");
-      setIncludeLatestSession(true);
-      setPrefilledWorkoutData(null);
-      setComposerPrefilled(false);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    },
-  });
-
-  const posts = useMemo(() => [...localPosts, ...(data?.posts || [])], [data?.posts, localPosts]);
-
-  const typeTabs = useMemo(
-    () =>
-      (["workout", "achievement", "progress", "update"] as PostType[]).map((type) => ({
-        key: type,
-        label: t(type as TranslationKey),
-      })),
-    [t]
-  );
-
-  const openComposer = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    setComposerPrefilled(false);
-    setPrefilledWorkoutData(null);
-    setIncludeLatestSession(true);
-    setComposerVisible(true);
   };
 
-  const renderPost = useCallback(({ item }: { item: FeedPost }) => <FeedPostItem post={item} />, []);
+  const handleToggleKudos = async (activity: FeedActivity) => {
+    if (pendingById[activity.id]) return;
+
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const previousLiked = !!activity.likedByMe;
+    const previousCount = activity.kudosCount ?? 0;
+
+    setPendingById((prev) => ({ ...prev, [activity.id]: true }));
+    setOptimisticById((prev) => ({
+      ...prev,
+      [activity.id]: {
+        likedByMe: !previousLiked,
+        kudosCount: Math.max(0, previousCount + (previousLiked ? -1 : 1)),
+      },
+    }));
+
+    try {
+      const res = await apiRequest("POST", `/api/activities/${activity.id}/kudos`);
+      const payload = await res.json();
+      const updated = payload?.activity as FeedActivity | undefined;
+      setOptimisticById((prev) => ({
+        ...prev,
+        [activity.id]: {
+          likedByMe: !!updated?.likedByMe,
+          kudosCount: Number(updated?.kudosCount ?? 0),
+        },
+      }));
+    } catch (error) {
+      console.error("[Feed] Impossible de toggler le kudos", error);
+      setOptimisticById((prev) => ({
+        ...prev,
+        [activity.id]: {
+          likedByMe: previousLiked,
+          kudosCount: previousCount,
+        },
+      }));
+      setToastMessage(t("activityKudosToggleError"));
+    } finally {
+      setPendingById((prev) => ({ ...prev, [activity.id]: false }));
+    }
+  };
 
   if (isGuest) {
     return <GuestPrompt />;
   }
 
-  return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}> 
-      <View style={[styles.header, { paddingTop: Platform.OS === "web" ? webTopPadding + 14 : insets.top + 14 }]}> 
-        <Text
-          style={[styles.title, { color: theme.text, fontFamily: Typography.titleStrong }]}
-          numberOfLines={1}
-          ellipsizeMode="tail"
-          adjustsFontSizeToFit
-          minimumFontScale={0.82}
-        >
-          {t("communityTitle")}
-        </Text>
-        <IconButton icon="add" size={48} onPress={openComposer} />
-      </View>
+  const refreshing = isManualRefreshing || (!isLoading && isRefetching);
+  const showSkeleton = isLoading && activities.length === 0;
 
+  return (
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <FlatList
-        data={posts}
-        renderItem={renderPost}
+        data={activities}
         keyExtractor={(item) => item.id}
         contentContainerStyle={{
-          paddingHorizontal: 16,
-          paddingBottom: Platform.OS === "web" ? 34 + 88 : 104,
-          gap: 14,
-          flexGrow: posts.length === 0 ? 1 : undefined,
+          paddingTop: Platform.OS === "web" ? webTopPadding : insets.top + 6,
+          paddingBottom: (Platform.OS === "web" ? 34 : insets.bottom) + 104,
+          paddingHorizontal: Math.max(layout.screenPadding, 16),
+          gap: 12,
+        }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refreshFeed}
+            tintColor={colors.accent}
+            colors={[colors.accent]}
+            progressBackgroundColor={DATA_SURFACE}
+          />
+        }
+        ListHeaderComponent={
+          <View style={styles.headerWrap}>
+            <SectionLabel>{t("activityFeedSectionLabel")}</SectionLabel>
+            <Text style={[styles.title, { color: colors.text, fontFamily: Typography.titleStrong }]}>
+              {t("activityFeedTitle")}
+            </Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
+              {t("activityFeedSubtitle")}
+            </Text>
+          </View>
+        }
+        renderItem={({ item }) => {
+          const authorName = item.user?.displayName || t("activityAnonymousAthlete");
+          const dateLabel = formatDate(item.startedAt, t("today"), t("yesterday"));
+          const typeVariant =
+            item.type === "run"
+              ? "ember"
+              : item.type === "ride"
+                ? "sky"
+                : item.type === "walk"
+                  ? "mint"
+                  : "gold";
+
+          const typeLabel =
+            item.type === "run"
+              ? t("activityTypeRun")
+              : item.type === "ride"
+                ? t("activityTypeRide")
+                : item.type === "walk"
+                  ? t("activityTypeWalk")
+                  : t("activityTypeWorkout");
+
+          return (
+            <Pressable
+              onPress={() => {
+                router.push(`/activity/${item.id}` as any);
+              }}
+              style={({ pressed }) => [{ opacity: pressed ? 0.93 : 1 }]}
+            >
+              <View style={[styles.card, { backgroundColor: DATA_SURFACE, borderColor: colors.border }]}>
+                <View style={styles.cardHeaderRow}>
+                  <View style={styles.authorBlock}>
+                    <Avatar
+                      name={authorName}
+                      initials={getInitials(authorName)}
+                      imageUri={item.user?.avatarUrl ?? undefined}
+                      size={42}
+                      mode="tint"
+                      color={colors.accent}
+                    />
+                    <View style={styles.authorTextWrap}>
+                      <Text
+                        style={[styles.authorName, { color: colors.text, fontFamily: Typography.title }]}
+                        numberOfLines={1}
+                      >
+                        {authorName}
+                      </Text>
+                      <Text
+                        style={[styles.authorMeta, { color: colors.textMuted, fontFamily: Typography.bodyRegular }]}
+                      >
+                        {dateLabel}
+                      </Text>
+                    </View>
+                  </View>
+                  <Badge label={typeLabel} variant={typeVariant} />
+                </View>
+
+                <Text style={[styles.activityTitle, { color: colors.text, fontFamily: Typography.titleStrong }]}>
+                  {item.title}
+                </Text>
+
+                <View style={[styles.metricsRow, { backgroundColor: DATA_SURFACE, borderColor: colors.border }]}>
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricValue, { color: colors.text, fontFamily: Typography.title }]}>
+                      {formatDistance(item.distanceMeters ?? 0)}
+                    </Text>
+                    <Text
+                      style={[styles.metricLabel, { color: colors.textMuted, fontFamily: Typography.labelTech }]}
+                    >
+                      {t("activityMetricDistance")}
+                    </Text>
+                  </View>
+
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricValue, { color: colors.text, fontFamily: Typography.title }]}>
+                      {formatDuration(item.durationSeconds ?? 0)}
+                    </Text>
+                    <Text
+                      style={[styles.metricLabel, { color: colors.textMuted, fontFamily: Typography.labelTech }]}
+                    >
+                      {t("activityMetricDuration")}
+                    </Text>
+                  </View>
+
+                  <View style={styles.metricItem}>
+                    <Text style={[styles.metricValue, { color: colors.text, fontFamily: Typography.title }]}>
+                      {formatPace(item.avgPaceSecPerKm)}
+                    </Text>
+                    <Text
+                      style={[styles.metricLabel, { color: colors.textMuted, fontFamily: Typography.labelTech }]}
+                    >
+                      {t("activityMetricPace")}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.kudosRow}>
+                  <Pressable
+                    onPress={(event) => {
+                      event.stopPropagation?.();
+                      void handleToggleKudos(item);
+                    }}
+                    disabled={pendingById[item.id]}
+                    style={({ pressed }) => [
+                      styles.kudosButton,
+                      {
+                        borderColor: colors.border,
+                        backgroundColor: item.likedByMe ? `${colors.accent}22` : DATA_SURFACE,
+                        opacity: pressed || pendingById[item.id] ? 0.8 : 1,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.kudosText,
+                        {
+                          color: item.likedByMe ? colors.accent : colors.textSecondary,
+                          fontFamily: Typography.bodySemiBold,
+                        },
+                      ]}
+                    >
+                      {`${item.likedByMe ? "🔥" : "👏"} ${item.kudosCount ?? 0}`}
+                    </Text>
+                  </Pressable>
+                  <Text style={[styles.kudosLabel, { color: colors.textMuted, fontFamily: Typography.bodyRegular }]}>
+                    {t("activityKudosLabel")}
+                  </Text>
+                </View>
+              </View>
+            </Pressable>
+          );
         }}
         ListEmptyComponent={
-          isLoading ? (
-            <View style={styles.skeletonList}>
-              {Array.from({ length: 3 }).map((_, idx) => (
-                <SkeletonCard key={`feed-skeleton-${idx}`} height={168} style={styles.skeletonCard} />
-              ))}
-            </View>
+          showSkeleton ? (
+            <PulseSkeletons />
           ) : (
-            <EmptyState
-              iconName="chatbubbles-outline"
-              title={t("noPostsYet")}
-              description={t("shareYourJourney")}
-            />
+            <View style={styles.emptyState}>
+              <Text style={[styles.emptyTitle, { color: colors.text, fontFamily: Typography.titleStrong }]}>
+                {t("feedEmptyFollowTitle")}
+              </Text>
+              <Text style={[styles.emptySubtitle, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
+                {t("feedEmptyFollowSubtitle")}
+              </Text>
+              <PrimaryButton
+                label={t("feedExploreAthletes")}
+                onPress={() => router.push("/users/explore" as any)}
+                style={styles.exploreButton}
+              />
+              <PulseSkeletons />
+            </View>
           )
         }
-        refreshControl={<RefreshControl refreshing={isLoading} onRefresh={refetch} tintColor={theme.accent} />}
-        showsVerticalScrollIndicator={false}
       />
 
-      <BottomSheet
-        visible={composerVisible}
-        onClose={() => {
-          setComposerVisible(false);
-          setComposerPrefilled(false);
-          setPrefilledWorkoutData(null);
-          setIncludeLatestSession(true);
-        }}
-        title={t("newPost")}
-      >
-        <KeyboardAvoidingView behavior="padding" style={styles.sheetContent} keyboardVerticalOffset={0}>
-          <SectionLabel>{t("feedPostTypeLabel")}</SectionLabel>
-
-          <PillTabs tabs={typeTabs} active={postType} onChange={setPostType} style={styles.typeTabs} />
-
-          {composerPrefilled ? (
-            <Text style={[styles.prefilledHint, { color: theme.textSecondary, fontFamily: Typography.bodyRegular }]}>
-              {t("feedAutoPostHint")}
-            </Text>
-          ) : null}
-
-          {postType === "workout" ? (
-            prefilledSessionPreview ? (
-              <View style={styles.sessionCardWrap}>
-                <Card style={[styles.sessionCard, { borderColor: `${theme.accent}77` }]}> 
-                  <View style={[styles.sessionIcon, { backgroundColor: `${theme.accent}22` }]}> 
-                    <Ionicons name="sparkles-outline" size={18} color={theme.accent} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.sessionTitle, { color: theme.text, fontFamily: Typography.title }]} numberOfLines={1}>
-                      {prefilledSessionPreview.title}
-                    </Text>
-                    <Text style={[styles.sessionSubtitle, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}>
-                      {prefilledSessionPreview.subtitle}
-                    </Text>
-                  </View>
-                </Card>
-              </View>
-            ) : latestSessionPreview ? (
-              <Pressable
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setIncludeLatestSession((prev) => !prev);
-                }}
-                style={({ pressed }) => [
-                  styles.sessionCardWrap,
-                  {
-                    opacity: pressed ? 0.82 : 1,
-                  },
-                ]}
-              >
-                <Card style={[styles.sessionCard, { borderColor: includeLatestSession ? `${theme.accent}66` : theme.border }]}> 
-                  <View style={[styles.sessionIcon, { backgroundColor: `${theme.accent}22` }]}> 
-                    <Ionicons name="barbell-outline" size={18} color={theme.accent} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.sessionTitle, { color: theme.text, fontFamily: Typography.title }]} numberOfLines={1}>
-                      {latestSessionPreview.title}
-                    </Text>
-                    <Text style={[styles.sessionSubtitle, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}>
-                      {includeLatestSession ? t("feedSessionIncluded") : t("feedSessionExcluded")}
-                    </Text>
-                  </View>
-                </Card>
-              </Pressable>
-            ) : (
-              <Text style={[styles.noSessionText, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}>
-                {t("feedNoRecentSession")}
-              </Text>
-            )
-          ) : null}
-
-          <TextInput
-            value={postContent}
-            onChangeText={setPostContent}
-            placeholder={t("feedComposerPlaceholder")}
-            placeholderTextColor={theme.textMuted}
-            multiline
-            textAlignVertical="top"
-            style={[
-              styles.contentInput,
-              {
-                backgroundColor: theme.cardElevated,
-                borderColor: theme.border,
-                color: theme.text,
-                fontFamily: Typography.body,
-              },
-            ]}
-          />
-
-          <PrimaryButton
-            label={t("feedPostToCommunity")}
-            loading={createMutation.isPending}
-            disabled={!postContent.trim() || createMutation.isPending}
-            onPress={() => {
-              Keyboard.dismiss();
-              createMutation.mutate();
-            }}
-            style={styles.publishBtn}
-          />
-        </KeyboardAvoidingView>
-      </BottomSheet>
+      <FeedbackToast
+        message={toastMessage}
+        tone="error"
+        style={{ bottom: Math.max(insets.bottom, 12) + 78 }}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingBottom: 14,
+  root: {
+    flex: 1,
+  },
+  headerWrap: {
+    gap: 8,
+    marginBottom: 6,
   },
   title: {
-    flexShrink: 1,
-    marginRight: 12,
-    fontSize: 30,
-    lineHeight: 32,
-    letterSpacing: -0.8,
+    fontSize: 48,
+    lineHeight: 52,
+    letterSpacing: -1.2,
   },
-  postCard: {
-    borderRadius: 24,
+  subtitle: {
+    fontSize: 14,
+    lineHeight: 20,
   },
-  skeletonList: {
-    gap: 14,
-    paddingTop: 4,
-  },
-  skeletonCard: {
-    borderRadius: 24,
-  },
-  sheetContent: {
+  card: {
+    borderWidth: 1,
+    borderRadius: 22,
+    padding: 14,
     gap: 12,
   },
-  typeTabs: {
-    flexWrap: "wrap",
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
   },
-  prefilledHint: {
-    fontSize: 12,
-    marginTop: -2,
-    marginBottom: 2,
-  },
-  sessionCardWrap: {
-    marginTop: 2,
-  },
-  sessionCard: {
-    borderRadius: 18,
-    borderLeftWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
+  authorBlock: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    flex: 1,
   },
-  sessionIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
+  authorTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  authorName: {
+    fontSize: 17,
+    lineHeight: 21,
+  },
+  authorMeta: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  activityTitle: {
+    fontSize: 24,
+    lineHeight: 28,
+    letterSpacing: -0.6,
+  },
+  metricsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 10,
+    gap: 10,
+  },
+  metricItem: {
+    flex: 1,
+    gap: 2,
+  },
+  metricValue: {
+    fontSize: 16,
+    lineHeight: 20,
+  },
+  metricLabel: {
+    fontSize: 10,
+    lineHeight: 12,
+    letterSpacing: 0.9,
+    textTransform: "uppercase",
+  },
+  kudosRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  kudosButton: {
+    borderWidth: 1,
+    borderRadius: 999,
+    minHeight: 36,
+    paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  sessionTitle: {
-    fontSize: 15,
+  kudosText: {
+    fontSize: 14,
+    lineHeight: 18,
   },
-  sessionSubtitle: {
+  kudosLabel: {
     fontSize: 12,
-    marginTop: 2,
+    lineHeight: 16,
   },
-  noSessionText: {
-    fontSize: 13,
+  skeletonWrap: {
+    gap: 12,
   },
-  contentInput: {
-    minHeight: 120,
+  skeletonCard: {
+    height: 148,
+    borderRadius: 12,
+    backgroundColor: DATA_SURFACE,
+  },
+  emptyState: {
+    paddingTop: 28,
+    paddingBottom: 16,
+    gap: 10,
+  },
+  emptyTitle: {
+    textAlign: "center",
+    fontSize: 22,
+    lineHeight: 28,
+    letterSpacing: -0.3,
+  },
+  emptySubtitle: {
+    textAlign: "center",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  exploreButton: {
+    marginTop: 6,
+  },
+  guestContent: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  guestIconWrap: {
+    width: 58,
+    height: 58,
     borderRadius: 16,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    lineHeight: 21,
-    marginTop: 2,
-  },
-  publishBtn: {
-    marginTop: 6,
-    marginBottom: 2,
-  },
-  guestPromptWrap: {
-    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 32,
-    gap: 14,
   },
-  guestPromptTitle: { fontSize: 20, textAlign: "center" },
-  guestPromptText: { fontSize: 14, textAlign: "center", lineHeight: 20 },
-  guestLoginBtn: {
-    marginTop: 8,
-    minWidth: 160,
+  guestTitle: {
+    fontSize: 26,
+    lineHeight: 30,
+    textAlign: "center",
+  },
+  guestBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    maxWidth: 320,
+  },
+  guestButton: {
+    width: 220,
+    marginTop: 6,
   },
 });

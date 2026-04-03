@@ -18,6 +18,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getExerciseById } from "@/data/exercises";
 import { Colors } from "@/constants/colors";
+import ExerciseGif from "@/components/ExerciseGif";
 import ExerciseMedia from "@/components/ExerciseMedia";
 import { PillTabs, PrimaryButton } from "@/components/ui";
 
@@ -105,18 +106,27 @@ export default function ExerciseDetailScreen() {
           <View style={styles.mediaCard}>
             {activeTab === "muscle" ? (
               <View style={styles.visualWrap}>
-                <ExerciseMedia
-                  exerciseId={exercise.id}
-                  type="auto"
-                  size={162}
-                  autoPlay
-                  loop
-                  isActive={activeTab === "muscle"}
-                  muscles={exercise.muscles}
-                  title={exT.name}
-                  subtitle={exT.description}
-                  theme={figureTheme}
-                  highlightColor={theme.accent}
+                <ExerciseGif
+                  exerciseDbId={exercise.exerciseDbId}
+                  imageUrl={exercise.imageUrl}
+                  size={Math.round(MEDIA_HEIGHT * 0.72)}
+                  backgroundColor={theme.card}
+                  borderColor={theme.border}
+                  fallback={
+                    <ExerciseMedia
+                      exerciseId={exercise.id}
+                      type="auto"
+                      size={162}
+                      autoPlay
+                      loop
+                      isActive={activeTab === "muscle"}
+                      muscles={exercise.muscles}
+                      title={exT.name}
+                      subtitle={exT.description}
+                      theme={figureTheme}
+                      highlightColor={theme.accent}
+                    />
+                  }
                 />
               </View>
             ) : null}
@@ -145,7 +155,11 @@ export default function ExerciseDetailScreen() {
 
           {videoUrl ? (
             <TouchableOpacity
-              onPress={() => Linking.openURL(videoUrl)}
+              onPress={() => {
+                Linking.openURL(videoUrl).catch((error) => {
+                  console.error("[ExerciseDetail] Failed to open video URL", error);
+                });
+              }}
               activeOpacity={0.78}
               style={styles.demoLink}
             >

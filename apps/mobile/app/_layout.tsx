@@ -68,6 +68,25 @@ function RootLayoutNav() {
         }}
       />
       <Stack.Screen
+        name="activity/[id]"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="users/explore"
+        options={{
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="users/[id]"
+        options={{
+          headerShown: false,
+          presentation: "modal",
+        }}
+      />
+      <Stack.Screen
         name="user/[id]"
         options={{
           headerShown: false,

@@ -799,7 +799,7 @@ export default function SessionScreen() {
   const isDark = colorScheme === "dark";
   const theme = isDark ? Colors.dark : Colors.light;
   const { radius } = useAppTheme();
-  const { getCustomization, addSession, profile } = useWorkout();
+  const { getCustomization, addSession } = useWorkout();
 
   const program = PROGRAMS.find((item) => item.id === id);
 
@@ -853,12 +853,8 @@ export default function SessionScreen() {
 
   useEffect(() => {
     if (hasManualViewMode) return;
-    if (!profile?.level || profile.level === "beginner") {
-      setWorkoutViewMode("guided");
-      return;
-    }
-    setWorkoutViewMode("minimal");
-  }, [profile?.level, hasManualViewMode]);
+    setWorkoutViewMode("guided");
+  }, [hasManualViewMode]);
 
   const finalizeSession = useCallback(() => {
     if (!program || completionTriggeredRef.current) return;
@@ -1301,6 +1297,9 @@ export default function SessionScreen() {
   const nextExerciseMeta = nextExerciseTranslation?.name
     ? `${nextWorkout?.effectiveSets ?? 0} × ${nextWorkout?.effectiveReps ?? "-"}`
     : undefined;
+  const guidedVisualSize = Math.round(
+    Math.min(264, Math.max(212, SCREEN_WIDTH * 0.58))
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: theme.background }]}> 
@@ -1505,7 +1504,8 @@ export default function SessionScreen() {
               <View style={styles.guidedVisualWrap}>
                 <ExerciseGif
                   exerciseDbId={currentExercise?.exerciseDbId}
-                  size={176}
+                  imageUrl={currentExercise?.imageUrl}
+                  size={guidedVisualSize}
                   style={styles.guidedVisualMedia}
                   backgroundColor={theme.card}
                   borderColor={theme.border}
@@ -1513,7 +1513,7 @@ export default function SessionScreen() {
                     <ExerciseMedia
                       exerciseId={currentExercise?.id}
                       type="auto"
-                      size={176}
+                      size={guidedVisualSize}
                       autoPlay={phase === "active"}
                       loop
                       isActive={phase === "active"}
@@ -1525,28 +1525,44 @@ export default function SessionScreen() {
                     />
                   }
                 />
-              </View>
-            ) : null}
-
-            {isGuidedMode && currentExercise?.videoUrl ? (
-              <Pressable
-                onPress={() => {
-                  if (!currentExercise.videoUrl) return;
-                  Linking.openURL(currentExercise.videoUrl).catch((error) => {
-                    console.error("[Session] Failed to open exercise demo URL", error);
-                  });
-                }}
-                style={({ pressed }) => [
-                  styles.demoLink,
-                  { opacity: pressed ? 0.75 : 1 },
-                ]}
-                hitSlop={8}
-              >
-                <Ionicons name="play-circle-outline" size={16} color={theme.accent} />
-                <Text style={[styles.demoLinkText, { color: theme.accent, fontFamily: Typography.bodySemiBold }]}>
-                  {t("exerciseWatchDemo")}
+                <Text
+                  style={[
+                    styles.guidedVisualCaption,
+                    { color: theme.textSecondary, fontFamily: Typography.body },
+                  ]}
+                >
+                  {t("sessionMovementExampleLine")}
                 </Text>
-              </Pressable>
+                {currentExercise?.videoUrl ? (
+                  <Pressable
+                    onPress={() => {
+                      if (!currentExercise.videoUrl) return;
+                      Linking.openURL(currentExercise.videoUrl).catch((error) => {
+                        console.error("[Session] Failed to open exercise demo URL", error);
+                      });
+                    }}
+                    style={({ pressed }) => [
+                      styles.demoLink,
+                      {
+                        backgroundColor: `${theme.accent}1A`,
+                        borderColor: `${theme.accent}66`,
+                        opacity: pressed ? 0.78 : 1,
+                      },
+                    ]}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="play-circle-outline" size={16} color={theme.accent} />
+                    <Text
+                      style={[
+                        styles.demoLinkText,
+                        { color: theme.accent, fontFamily: Typography.bodySemiBold },
+                      ]}
+                    >
+                      {t("exerciseWatchDemo")}
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
             ) : null}
 
             {prToast ? (
@@ -1942,13 +1958,22 @@ const styles = StyleSheet.create({
     gap: 8,
     alignSelf: "flex-start",
     marginTop: 2,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   guidedVisualWrap: {
-    marginTop: 2,
+    marginTop: 8,
+    gap: 8,
   },
   guidedVisualMedia: {
     marginTop: 0,
-    minHeight: 166,
+    minHeight: 228,
+  },
+  guidedVisualCaption: {
+    fontSize: 12,
+    lineHeight: 17,
   },
   demoLinkText: {
     fontSize: 13,
