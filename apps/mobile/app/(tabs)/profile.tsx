@@ -30,6 +30,7 @@ import { TranslationKey } from "@/lib/i18n";
 import { getRecentPrTimeline, RecentPrRecord } from "@/utils/prStorage";
 import { useAppTheme } from "@/hooks";
 import { Typography } from "@/constants/typography";
+import { apiRequest } from "@/lib/query-client";
 import {
   AthleteIdentityCard,
   ProfileLevelJourneyCard,
@@ -205,6 +206,7 @@ export default function ProfileScreen() {
   const [recordsError, setRecordsError] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastTone, setToastTone] = useState<"success" | "error">("success");
+  const [socialStats, setSocialStats] = useState<{ followersCount: number; followingCount: number } | null>(null);
 
   const loadRecentRecords = useCallback((showFeedback = false) => {
     let active = true;
@@ -239,6 +241,21 @@ export default function ProfileScreen() {
   }, [t]);
 
   useFocusEffect(useCallback(() => loadRecentRecords(false), [loadRecentRecords]));
+
+  useEffect(() => {
+    if (!user?.id) return;
+    apiRequest("GET", `/api/users/${user.id}/profile`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.profile) {
+          setSocialStats({
+            followersCount: data.profile.followersCount ?? 0,
+            followingCount: data.profile.followingCount ?? 0,
+          });
+        }
+      })
+      .catch(() => {});
+  }, [user?.id]);
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -443,6 +460,39 @@ export default function ProfileScreen() {
           objectiveLabel={objectiveLabel}
           streakLabel={streakDays > 0 ? formatTemplate(t("profileStreakChipPattern"), { count: streakDays }) : undefined}
         />
+
+        {/* ── Social ── */}
+        <View style={styles.socialSection}>
+          <View style={styles.socialCounts}>
+            <View style={styles.socialItem}>
+              <Text style={[styles.socialCount, { color: colors.text, fontFamily: typography.family.titleStrong }]}>
+                {socialStats?.followersCount ?? 0}
+              </Text>
+              <Text style={[styles.socialLabel, { color: colors.textMuted, fontFamily: typography.family.bodyRegular }]}>
+                followers
+              </Text>
+            </View>
+            <View style={[styles.socialDivider, { backgroundColor: colors.border }]} />
+            <View style={styles.socialItem}>
+              <Text style={[styles.socialCount, { color: colors.text, fontFamily: typography.family.titleStrong }]}>
+                {socialStats?.followingCount ?? 0}
+              </Text>
+              <Text style={[styles.socialLabel, { color: colors.textMuted, fontFamily: typography.family.bodyRegular }]}>
+                following
+              </Text>
+            </View>
+          </View>
+          {!!user?.id && (
+            <Pressable
+              onPress={() => router.push(`/users/${user.id}` as any)}
+              style={({ pressed }) => [styles.publicProfileBtn, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Text style={[styles.publicProfileBtnText, { fontFamily: typography.family.bodySemiBold }]}>
+                Voir mon profil public →
+              </Text>
+            </Pressable>
+          )}
+        </View>
 
         <View style={styles.statsGrid}>
           <StatTile
@@ -832,5 +882,38 @@ const styles = StyleSheet.create({
     marginTop: 10,
     width: "100%",
     maxWidth: 280,
+  },
+  socialSection: {
+    marginTop: 12,
+    marginBottom: 4,
+    gap: 10,
+  },
+  socialCounts: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 20,
+  },
+  socialItem: {
+    alignItems: "center",
+    gap: 2,
+  },
+  socialCount: {
+    fontSize: 18,
+    lineHeight: 22,
+  },
+  socialLabel: {
+    fontSize: 11,
+  },
+  socialDivider: {
+    width: 1,
+    height: 28,
+  },
+  publicProfileBtn: {
+    alignSelf: "flex-start",
+    paddingVertical: 4,
+  },
+  publicProfileBtnText: {
+    color: "#FF5500",
+    fontSize: 13,
   },
 });
