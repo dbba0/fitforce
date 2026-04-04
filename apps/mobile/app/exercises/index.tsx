@@ -50,8 +50,12 @@ function buildExercisesUrl(muscleGroup: string | null, page: number): string {
 }
 
 function extractExercises(payload: ExercisesResponse): Exercise[] {
-  const raw = payload.exercises ?? payload.data ?? [];
-  return raw.filter((item) => !!item?.id);
+  const raw = payload.data ?? payload.exercises ?? (payload as any) ?? [];
+  return (raw as any[]).map((item: any) => ({
+    ...item,
+    name: item.name ?? item.title ?? "",
+    id: item.id ?? item.slug ?? "",
+  }));
 }
 
 function extractMuscleGroups(payload: MuscleGroupsResponse): string[] {
