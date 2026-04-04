@@ -1,12 +1,11 @@
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   Dimensions,
-  Linking,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
   useColorScheme,
 } from "react-native";
@@ -15,11 +14,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
+import { Video, ResizeMode } from "expo-av";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getExerciseById } from "@/data/exercises";
 import { Colors } from "@/constants/colors";
-import ExerciseGif from "@/components/ExerciseGif";
 import ExerciseMedia from "@/components/ExerciseMedia";
+import { apiRequest } from "@/lib/query-client";
 import { PillTabs, PrimaryButton } from "@/components/ui";
 
 type DetailTab = "muscle" | "tutorial";
@@ -52,6 +52,21 @@ export default function ExerciseDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const [activeTab, setActiveTab] = useState<DetailTab>("muscle");
+  const [freshVideoUrl, setFreshVideoUrl] = useState<string | null>(null);
+  const [freshThumbnailUrl, setFreshThumbnailUrl] = useState<string | null>(null);
+
+  const fetchExercise = useCallback(async (exerciseId: string) => {
+    try {
+      const res = await apiRequest("GET", `/api/exercises/${exerciseId}`);
+      const payload = await res.json();
+      const detail = payload.data ?? payload;
+      if (detail.videoUrl) setFreshVideoUrl(detail.videoUrl);
+      if (detail.thumbnailUrl) setFreshThumbnailUrl(detail.thumbnailUrl);
+    } catch {
+      // keep current display, no-op
+    }
+  }, []);
+
   const exercise = getExerciseById(id ?? "");
   const figureTheme = {
     card: theme.card,
@@ -106,28 +121,31 @@ export default function ExerciseDetailScreen() {
           <View style={styles.mediaCard}>
             {activeTab === "muscle" ? (
               <View style={styles.visualWrap}>
-                <ExerciseGif
-                  exerciseDbId={exercise.exerciseDbId}
-                  imageUrl={exercise.imageUrl}
-                  size={Math.round(MEDIA_HEIGHT * 0.72)}
-                  backgroundColor={theme.card}
-                  borderColor={theme.border}
-                  fallback={
-                    <ExerciseMedia
-                      exerciseId={exercise.id}
-                      type="auto"
-                      size={162}
-                      autoPlay
-                      loop
-                      isActive={activeTab === "muscle"}
-                      muscles={exercise.muscles}
-                      title={exT.name}
-                      subtitle={exT.description}
-                      theme={figureTheme}
-                      highlightColor={theme.accent}
-                    />
-                  }
-                />
+                {freshVideoUrl ?? videoUrl ? (
+                  <Video
+                    source={{ uri: (freshVideoUrl ?? videoUrl) as string }}
+                    style={{ height: 240, borderRadius: 0 }}
+                    resizeMode={ResizeMode.COVER}
+                    useNativeControls
+                    isLooping={false}
+                    onError={() => {
+                      fetchExercise(id ?? "");
+                    }}
+                  />
+                ) : freshThumbnailUrl ?? exercise.imageUrl ? (
+                  <Image
+                    source={{ uri: (freshThumbnailUrl ?? exercise.imageUrl) as string }}
+                    style={{ height: 240, width: "100%", borderRadius: 0 }}
+                    resizeMode="cover"
+                    onError={() => {
+                      fetchExercise(id ?? "");
+                    }}
+                  />
+                ) : (
+                  <View style={{ height: 240, backgroundColor: "#1A1A1A", justifyContent: "center", alignItems: "center" }}>
+                    <Text style={{ color: "#888", fontFamily: "DMSans_400Regular" }}>Vidéo non disponible</Text>
+                  </View>
+                )}
               </View>
             ) : null}
 
@@ -153,22 +171,6 @@ export default function ExerciseDetailScreen() {
             style={styles.segmented}
           />
 
-          {videoUrl ? (
-            <TouchableOpacity
-              onPress={() => {
-                Linking.openURL(videoUrl).catch((error) => {
-                  console.error("[ExerciseDetail] Failed to open video URL", error);
-                });
-              }}
-              activeOpacity={0.78}
-              style={styles.demoLink}
-            >
-              <Ionicons name="play-circle-outline" size={16} color={theme.accent} />
-              <Text style={[styles.demoLinkText, { color: theme.accent, fontFamily: "DMSans_600SemiBold" }]}>
-                {t("exerciseWatchDemo")}
-              </Text>
-            </TouchableOpacity>
-          ) : null}
 
           <Animated.View entering={FadeInDown.duration(350).delay(80)} style={styles.durationRow}>
             <Text style={[styles.sectionTitle, styles.sectionBlue, { fontFamily: "Syne_800ExtraBold" }]}>DUREE (SECONDES)</Text>

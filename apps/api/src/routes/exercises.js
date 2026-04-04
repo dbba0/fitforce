@@ -1,149 +1,81 @@
 const express = require('express');
+const { authRequired } = require('../middleware/auth');
+const { getExercises, getExerciseById, getMuscleGroups, getExerciseTypes, generateWorkout } = require('../services/ymoveService');
 
 const router = express.Router();
 
-const EXERCISEDB_BASE_URL = (process.env.EXERCISEDB_BASE_URL || 'https://exercisedb.dev').replace(
-  /\/+$/,
-  ''
-);
-const EXERCISE_DB_LIST_URL = `${EXERCISEDB_BASE_URL}/api/v2/exercises`;
-const LIST_CACHE_TTL_MS = 1000 * 60 * 15;
-const DETAIL_CACHE_TTL_MS = 1000 * 60 * 30;
+const ALLOWED_EXERCISE_PARAMS = ['muscleGroup', 'exerciseType', 'difficulty', 'hasVideo', 'limit', 'page'];
+const ALLOWED_WORKOUT_PARAMS = ['muscleGroup', 'difficulty'];
 
-let listCache = {
-  expiresAt: 0,
-  exercises: null,
-};
-const exerciseByIdCache = new Map();
-
-function sanitizeExercise(item) {
-  return {
-    id: String(item?.id ?? ''),
-    name: String(item?.name ?? ''),
-    target: String(item?.target ?? ''),
-    bodyPart: String(item?.bodyPart ?? ''),
-    gifUrl: String(item?.gifUrl ?? ''),
-  };
-}
-
-function sanitizeExerciseDetail(item) {
-  return {
-    id: String(item?.id ?? ''),
-    name: String(item?.name ?? ''),
-    bodyPart: String(item?.bodyPart ?? ''),
-    target: String(item?.target ?? ''),
-    gifUrl: String(item?.gifUrl ?? ''),
-    secondaryMuscles: Array.isArray(item?.secondaryMuscles)
-      ? item.secondaryMuscles.map((muscle) => String(muscle ?? '')).filter(Boolean)
-      : [],
-    instructions: Array.isArray(item?.instructions)
-      ? item.instructions.map((instruction) => String(instruction ?? '')).filter(Boolean)
-      : [],
-  };
-}
-
-function getCachedExerciseById(id) {
-  const entry = exerciseByIdCache.get(id);
-  if (!entry) return null;
-
-  if (Date.now() >= entry.expiresAt) {
-    exerciseByIdCache.delete(id);
-    return null;
-  }
-
-  return entry.exercise;
-}
-
-function setCachedExerciseById(id, exercise) {
-  exerciseByIdCache.set(id, {
-    expiresAt: Date.now() + DETAIL_CACHE_TTL_MS,
-    exercise,
-  });
-}
-
-router.get('/', async (req, res) => {
-  if (listCache.exercises && Date.now() < listCache.expiresAt) {
-    return res.json({ exercises: listCache.exercises });
-  }
-
-  try {
-    const response = await fetch(EXERCISE_DB_LIST_URL, { method: 'GET' });
-
-    if (!response.ok) {
-      const details = await response.text();
-      return res.status(response.status).json({
-        message: 'Failed to fetch exercises from ExerciseDB provider',
-        details: details.slice(0, 400),
-      });
+function pickQueryParams(query, allowed) {
+  const params = new URLSearchParams();
+  for (const key of allowed) {
+    const value = query[key];
+    if (value !== undefined && value !== '') {
+      params.set(key, String(value));
     }
+  }
+  return params.toString();
+}
 
-    const payload = await response.json();
-    const rawExercises = Array.isArray(payload)
-      ? payload
-      : Array.isArray(payload?.exercises)
-      ? payload.exercises
-      : [];
-    const exercises = rawExercises
-      .map(sanitizeExercise)
-      .filter((exercise) => exercise.id && exercise.name);
-
-    listCache = {
-      expiresAt: Date.now() + LIST_CACHE_TTL_MS,
-      exercises,
-    };
-
-    return res.json({ exercises });
+// GET /api/exercises
+router.get('/', async (req, res) => {
+  try {
+    const qs = pickQueryParams(req.query, ALLOWED_EXERCISE_PARAMS);
+    const data = await getExercises(qs);
+    return res.json(data);
   } catch (error) {
-    console.error('[Exercises API] list fetch failed', error);
-    return res.status(502).json({
-      message: 'Unable to reach ExerciseDB provider',
-    });
+    console.error('[Exercises] Failed to fetch exercises', error);
+    return res.status(500).json({ message: 'Failed to fetch exercises' });
   }
 });
 
-router.get('/:id', async (req, res) => {
-  const id = String(req.params.id || '').trim();
-  if (!id) {
-    return res.status(400).json({ message: 'Exercise id is required' });
-  }
-
-  const cachedExercise = getCachedExerciseById(id);
-  if (cachedExercise) {
-    return res.json(cachedExercise);
-  }
-
+// GET /api/exercises/muscle-groups
+router.get('/muscle-groups', async (_req, res) => {
   try {
-    const response = await fetch(
-      `${EXERCISEDB_BASE_URL}/api/v2/exercises/exercise/${encodeURIComponent(id)}`,
-      { method: 'GET' }
-    );
-
-    if (!response.ok) {
-      const details = await response.text();
-      return res.status(response.status).json({
-        message: 'Failed to fetch exercise details from ExerciseDB provider',
-        details: details.slice(0, 400),
-      });
-    }
-
-    const payload = await response.json();
-    const candidate =
-      payload && typeof payload === 'object' && payload.exercise ? payload.exercise : payload;
-    const exercise = sanitizeExerciseDetail(candidate);
-
-    if (!exercise.id || !exercise.name) {
-      return res.status(502).json({
-        message: 'ExerciseDB provider returned invalid exercise payload',
-      });
-    }
-
-    setCachedExerciseById(id, exercise);
-    return res.json(exercise);
+    const data = await getMuscleGroups();
+    return res.json(data);
   } catch (error) {
-    console.error(`[Exercises API] details fetch failed for id=${id}`, error);
-    return res.status(502).json({
-      message: 'Unable to reach ExerciseDB provider',
-    });
+    console.error('[Exercises] Failed to fetch muscle groups', error);
+    return res.status(500).json({ message: 'Failed to fetch muscle groups' });
+  }
+});
+
+// GET /api/exercises/types
+router.get('/types', async (_req, res) => {
+  try {
+    const data = await getExerciseTypes();
+    return res.json(data);
+  } catch (error) {
+    console.error('[Exercises] Failed to fetch exercise types', error);
+    return res.status(500).json({ message: 'Failed to fetch exercise types' });
+  }
+});
+
+// GET /api/exercises/workout/generate
+router.get('/workout/generate', async (req, res) => {
+  try {
+    const qs = pickQueryParams(req.query, ALLOWED_WORKOUT_PARAMS);
+    const data = await generateWorkout(qs);
+    return res.json(data);
+  } catch (error) {
+    console.error('[Exercises] Failed to generate workout', error);
+    return res.status(500).json({ message: 'Failed to generate workout' });
+  }
+});
+
+// GET /api/exercises/:id  (no cache — videoUrl expires after 48h)
+router.get('/:id', authRequired, async (req, res) => {
+  try {
+    const id = String(req.params.id || '').trim();
+    if (!id) {
+      return res.status(400).json({ message: 'Exercise id is required' });
+    }
+    const data = await getExerciseById(id);
+    return res.json(data);
+  } catch (error) {
+    console.error(`[Exercises] Failed to fetch exercise id=${req.params.id}`, error);
+    return res.status(500).json({ message: 'Failed to fetch exercise' });
   }
 });
 
