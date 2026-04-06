@@ -93,7 +93,7 @@ export default function UserProfileScreen() {
       <View style={[styles.container, { backgroundColor: colors.background, alignItems: "center", justifyContent: "center", gap: 12 }]}>
         <Ionicons name="person-outline" size={48} color={colors.textMuted} />
         <Text style={[styles.notFoundText, { color: colors.text, fontFamily: typography.family.title }]}>
-          {t("programNotFound" as any)}
+          {"Profil introuvable"}
         </Text>
         <Pressable onPress={() => router.back()}>
           <Text style={{ color: ACCENT, fontFamily: typography.family.bodySemiBold }}>{t("back")}</Text>
