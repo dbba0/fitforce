@@ -9,7 +9,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAppTheme } from "@/hooks";
 import { TranslationKey } from "@/lib/i18n";
 
-type TabName = "index" | "workouts" | "track" | "feed" | "profile";
+type TabName = "index" | "workouts" | "track" | "feed" | "nutrition" | "profile";
 
 const TAB_CONFIG: Record<
   TabName,
@@ -19,6 +19,7 @@ const TAB_CONFIG: Record<
   workouts: { labelKey: "workouts", icon: "barbell-outline", activeIcon: "barbell" },
   track: { labelKey: "track", icon: "navigate-outline", activeIcon: "navigate" },
   feed: { labelKey: "feed", icon: "people-outline", activeIcon: "people" },
+  nutrition: { labelKey: "nutrition" as TranslationKey, icon: "restaurant-outline", activeIcon: "restaurant" },
   profile: { labelKey: "profile", icon: "person-outline", activeIcon: "person" },
 };
 
