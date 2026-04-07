@@ -121,18 +121,20 @@ export default function ExerciseDetailScreen() {
           <View style={styles.mediaCard}>
             {activeTab === "muscle" ? (
               <View style={styles.visualWrap}>
-                {freshVideoUrl ?? videoUrl ? (
+                {(freshVideoUrl ?? videoUrl) && Platform.OS !== "ios" ? (
                   <Video
                     source={{ uri: (freshVideoUrl ?? videoUrl) as string }}
                     style={{ height: 240, borderRadius: 0 }}
                     resizeMode={ResizeMode.COVER}
-                    useNativeControls
-                    isLooping={false}
+                    shouldPlay
+                    isLooping
+                    isMuted
+                    useNativeControls={false}
                     onError={() => {
                       fetchExercise(id ?? "");
                     }}
                   />
-                ) : freshThumbnailUrl ?? exercise.imageUrl ? (
+                ) : (freshThumbnailUrl ?? exercise.imageUrl) ? (
                   <Image
                     source={{ uri: (freshThumbnailUrl ?? exercise.imageUrl) as string }}
                     style={{ height: 240, width: "100%", borderRadius: 0 }}
@@ -308,7 +310,7 @@ const styles = StyleSheet.create({
   },
   tutorialText: {
     flex: 1,
-    color: "#1D2130",
+    color: "#E0E0E0",
     fontSize: 14,
     lineHeight: 21,
   },

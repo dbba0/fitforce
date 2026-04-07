@@ -46,8 +46,17 @@ function extractExercise(payload: ExerciseResponse): ExerciseDetail {
 
 function toStringArray(value: string | string[] | undefined | null): string[] {
   if (!value) return [];
-  if (Array.isArray(value)) return value.filter(Boolean);
-  return [value];
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  const str = String(value).trim();
+  // Handle JSON array strings like '["Strength","Calisthenics"]'
+  if (str.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch {}
+  }
+  // Strip any remaining brackets/quotes and split by comma
+  return str.replace(/[\[\]"]/g, "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 // ─── Media block ─────────────────────────────────────────────────────────────
