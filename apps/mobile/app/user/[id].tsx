@@ -50,7 +50,8 @@ export default function UserProfileScreen() {
     queryKey: ["/api/users", userId, "profile"],
     queryFn: async () => {
       const res = await apiRequest("GET", `/api/users/${userId}/profile`);
-      return res.json();
+      const json = await res.json();
+      return { profile: json.profile ?? json };
     },
     enabled: !!userId,
   });
