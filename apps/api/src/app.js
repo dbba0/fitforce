@@ -65,7 +65,8 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use((_req, res, next) => { res.setHeader('ngrok-skip-browser-warning', 'true'); next(); });
 
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
+app.get('/api/health', (req, res) => res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
