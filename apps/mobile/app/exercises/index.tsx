@@ -33,6 +33,7 @@ type Exercise = {
 type ExercisesResponse = {
   exercises?: Exercise[];
   data?: Exercise[];
+  items?: Exercise[];
   total?: number;
 };
 
@@ -50,8 +51,18 @@ function buildExercisesUrl(muscleGroup: string | null, page: number): string {
 }
 
 function extractExercises(payload: ExercisesResponse): Exercise[] {
-  const raw = payload.exercises ?? payload.data ?? [];
-  return raw.filter((item) => !!item?.id);
+  const raw = payload.exercises
+    ?? payload.data
+    ?? payload.items
+    ?? (Array.isArray(payload) ? payload : []);
+
+  const items = (raw as any[]).map((item: any) => ({
+    ...item,
+    name: item.name ?? item.title ?? '',
+    id: item.id ?? item.slug ?? '',
+  }));
+
+  return items;
 }
 
 function extractMuscleGroups(payload: MuscleGroupsResponse): string[] {

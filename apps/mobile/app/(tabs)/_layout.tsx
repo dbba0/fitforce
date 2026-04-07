@@ -94,54 +94,35 @@ export default function TabLayout() {
         headerShown: false,
         tabBarShowLabel: true,
         tabBarHideOnKeyboard: true,
-        tabBarActiveTintColor: colors.accent,
-        tabBarInactiveTintColor: colors.textMuted,
+        tabBarActiveTintColor: "#FF5500",
+        tabBarInactiveTintColor: "rgba(255,255,255,0.4)",
         tabBarStyle: {
           position: "absolute",
-          left: isWeb ? 16 : spacing[2],
-          right: isWeb ? 16 : spacing[2],
           bottom: 0,
-          height: isWeb ? 68 : 68 + Math.max(insets.bottom - 6, 0),
-          paddingTop: 8,
-          paddingBottom: isWeb ? 8 : Math.max(insets.bottom, 8),
-          paddingHorizontal: 8,
-          borderRadius: radius.xl,
-          borderTopWidth: 1,
-          borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
+          left: 0,
+          right: 0,
+          height: 85,
           backgroundColor: "transparent",
-          shadowColor: "#000",
-          shadowOpacity: isDark ? 0.34 : 0.14,
-          shadowRadius: 18,
-          shadowOffset: { width: 0, height: 8 },
+          borderTopWidth: 0,
           elevation: 0,
-        },
-        tabBarItemStyle: {
-          borderRadius: radius.lg,
-          marginHorizontal: 2,
-          paddingVertical: 2,
+          ...(Platform.OS === "ios" ? { paddingBottom: 20 } : {}),
         },
         tabBarLabelStyle: {
-          fontFamily: typography.family.bodySemiBold,
-          fontSize: 12,
-          lineHeight: 14,
-          marginTop: 2,
+          fontSize: 10,
+          marginBottom: 6,
         },
         tabBarBackground: () => (
-          <View style={[StyleSheet.absoluteFill, { borderRadius: radius.xl, overflow: "hidden" }]}>
-            <BlurView
-              intensity={72}
-              tint={isDark ? "dark" : "light"}
-              style={StyleSheet.absoluteFill}
-            />
-            <View
-              style={[
-                StyleSheet.absoluteFill,
-                {
-                  backgroundColor: isDark ? "rgba(12,12,14,0.72)" : "rgba(250,250,252,0.8)",
-                },
-              ]}
-            />
-          </View>
+          <BlurView
+            intensity={60}
+            tint="dark"
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              borderTopWidth: 1,
+              borderTopColor: "rgba(255,255,255,0.08)",
+              backgroundColor: "rgba(10,10,10,0.55)",
+              overflow: "hidden",
+            }}
+          />
         ),
       }}
     >

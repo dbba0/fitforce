@@ -22,8 +22,21 @@ function pickQueryParams(query, allowed) {
 router.get('/', async (req, res) => {
   try {
     const qs = pickQueryParams(req.query, ALLOWED_EXERCISE_PARAMS);
-    const data = await getExercises(qs);
-    return res.json(data);
+    const ymoveResponse = await getExercises(qs);
+
+    const rawItems = Array.isArray(ymoveResponse)
+      ? ymoveResponse
+      : (ymoveResponse.data ?? ymoveResponse.exercises ?? ymoveResponse.items ?? []);
+
+    const exercises = rawItems.map(ex => ({
+      ...ex,
+      name: ex.title ?? ex.name ?? '',
+      id: ex.id ?? ex.slug ?? '',
+      thumbnailUrl: ex.thumbnailUrl ?? null,
+      videoUrl: ex.videoUrl ?? null,
+    }));
+
+    return res.json({ exercises, pagination: ymoveResponse.pagination ?? null });
   } catch (error) {
     console.error('[Exercises] Failed to fetch exercises', error);
     return res.status(500).json({ message: 'Failed to fetch exercises' });
@@ -56,8 +69,21 @@ router.get('/types', async (_req, res) => {
 router.get('/workout/generate', async (req, res) => {
   try {
     const qs = pickQueryParams(req.query, ALLOWED_WORKOUT_PARAMS);
-    const data = await generateWorkout(qs);
-    return res.json(data);
+    const ymoveResponse = await generateWorkout(qs);
+
+    const workout = ymoveResponse.data ?? ymoveResponse;
+    if (workout.exercises) {
+      workout.exercises = workout.exercises.map(item => ({
+        ...item,
+        exercise: item.exercise ? {
+          ...item.exercise,
+          name: item.exercise.title ?? item.exercise.name ?? '',
+          id: item.exercise.id ?? item.exercise.slug ?? '',
+        } : item.exercise,
+      }));
+    }
+
+    return res.json({ data: workout });
   } catch (error) {
     console.error('[Exercises] Failed to generate workout', error);
     return res.status(500).json({ message: 'Failed to generate workout' });
