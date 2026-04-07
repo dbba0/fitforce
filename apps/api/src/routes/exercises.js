@@ -33,8 +33,17 @@ router.get('/', authRequired, async (req, res) => {
 // GET /api/exercises/muscle-groups
 router.get('/muscle-groups', authRequired, async (_req, res) => {
   try {
-    const data = await getMuscleGroups();
-    return res.json(data);
+    const ymoveResponse = await getMuscleGroups();
+    const raw = ymoveResponse.data
+      ?? ymoveResponse.muscleGroups
+      ?? ymoveResponse.items
+      ?? (Array.isArray(ymoveResponse) ? ymoveResponse : []);
+
+    const groups = raw
+      .map((item) => (typeof item === 'string' ? item : (item.slug ?? item.name ?? '')))
+      .filter(Boolean);
+
+    return res.json({ muscleGroups: groups });
   } catch (error) {
     console.error('[Exercises] Failed to fetch muscle groups', error);
     return res.status(500).json({ message: 'Failed to fetch muscle groups' });
@@ -65,7 +74,7 @@ router.get('/workout/generate', authRequired, async (req, res) => {
 });
 
 // GET /api/exercises/:id  (no cache — videoUrl expires after 48h)
-router.get('/:id', authRequired, async (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     if (!id) {
