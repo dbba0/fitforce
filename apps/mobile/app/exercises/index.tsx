@@ -26,7 +26,7 @@ type Exercise = {
   id: string;
   name: string;
   muscleGroup?: string;
-  exerciseType?: string;
+  exerciseType?: string | string[];
   thumbnailUrl?: string | null;
 };
 
@@ -124,9 +124,14 @@ function ExerciseCard({ item, refreshedUrl, onImageError, onPress }: ExerciseCar
             </View>
           ) : null}
           {item.exerciseType ? (
-            <View style={styles.tag}>
-              <Text style={styles.tagText}>{item.exerciseType}</Text>
-            </View>
+            (Array.isArray(item.exerciseType)
+              ? item.exerciseType
+              : [item.exerciseType]
+            ).map((type, i) => (
+              <View key={i} style={styles.tag}>
+                <Text style={styles.tagText}>{type}</Text>
+              </View>
+            ))
           ) : null}
         </View>
       </View>

@@ -62,10 +62,12 @@ function MediaBlock({ exercise, onError }: MediaBlockProps) {
     return (
       <Video
         source={{ uri: exercise.videoUrl }}
-        style={{ height: MEDIA_HEIGHT, width: "100%" }}
+        style={{ height: 280, width: "100%" }}
         resizeMode={ResizeMode.COVER}
-        useNativeControls
-        isLooping={false}
+        shouldPlay
+        isLooping
+        isMuted
+        useNativeControls={false}
         onError={onError}
       />
     );
@@ -75,7 +77,7 @@ function MediaBlock({ exercise, onError }: MediaBlockProps) {
     return (
       <Image
         source={{ uri: exercise.thumbnailUrl }}
-        style={{ height: MEDIA_HEIGHT, width: "100%" }}
+        style={{ height: 280, width: "100%" }}
         resizeMode="cover"
         onError={onError}
       />
@@ -83,7 +85,7 @@ function MediaBlock({ exercise, onError }: MediaBlockProps) {
   }
 
   return (
-    <View style={styles.mediaFallback}>
+    <View style={[styles.mediaFallback, { height: 280 }]}>
       <Text style={[styles.mediaFallbackText, { fontFamily: Typography.bodyRegular }]}>
         Vidéo non disponible
       </Text>
@@ -259,7 +261,7 @@ export default function ExerciseYMoveDetailScreen() {
                   <Text style={[styles.stepNumber, { fontFamily: Typography.titleStrong }]}>
                     {String(index + 1).padStart(2, "0")}
                   </Text>
-                  <Text style={[styles.stepText, { color: colors.text, fontFamily: Typography.bodyRegular }]}>
+                  <Text style={[styles.stepText, { color: "#E0E0E0", fontFamily: Typography.bodyRegular }]}>
                     {step}
                   </Text>
                 </View>
