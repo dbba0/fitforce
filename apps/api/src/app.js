@@ -64,6 +64,7 @@ app.use(
 );
 app.use(morgan('dev'));
 app.use(express.json());
+app.use((_req, res, next) => { res.setHeader('ngrok-skip-browser-warning', 'true'); next(); });
 
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
