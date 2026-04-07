@@ -1,5 +1,7 @@
+const { ymoveApiKey } = require('../config/env');
+
 const YMOVE_BASE = 'https://exercise-api.ymove.app/api/v2';
-const YMOVE_KEY = process.env.YMOVE_API_KEY || '';
+const YMOVE_KEY = ymoveApiKey;
 
 const ymoveFetch = async (path) => {
   const res = await fetch(`${YMOVE_BASE}${path}`, {

@@ -5,6 +5,11 @@ const { mongoUri } = require('./env');
 let memoryServer;
 
 async function connectDb() {
+  const isProduction = process.env.NODE_ENV === 'production';
+  if (isProduction && !process.env.MONGO_URI) {
+    throw new Error('MONGO_URI est requis en production');
+  }
+
   mongoose.set('strictQuery', true);
   try {
     await mongoose.connect(mongoUri, { serverSelectionTimeoutMS: 5000 });
