@@ -46,8 +46,17 @@ function extractExercise(payload: ExerciseResponse): ExerciseDetail {
 
 function toStringArray(value: string | string[] | undefined | null): string[] {
   if (!value) return [];
-  if (Array.isArray(value)) return value.filter(Boolean);
-  return [value];
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  const str = String(value).trim();
+  // Handle JSON array strings like '["Strength","Calisthenics"]'
+  if (str.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(str);
+      if (Array.isArray(parsed)) return parsed.map(String).filter(Boolean);
+    } catch {}
+  }
+  // Strip any remaining brackets/quotes and split by comma
+  return str.replace(/[\[\]"]/g, "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 // ─── Media block ─────────────────────────────────────────────────────────────
@@ -58,14 +67,16 @@ type MediaBlockProps = {
 };
 
 function MediaBlock({ exercise, onError }: MediaBlockProps) {
-  if (exercise.videoUrl) {
+  if (exercise.videoUrl && Platform.OS !== "ios") {
     return (
       <Video
         source={{ uri: exercise.videoUrl }}
-        style={{ height: MEDIA_HEIGHT, width: "100%" }}
+        style={{ height: 280, width: "100%" }}
         resizeMode={ResizeMode.COVER}
-        useNativeControls
-        isLooping={false}
+        shouldPlay
+        isLooping
+        isMuted
+        useNativeControls={false}
         onError={onError}
       />
     );
@@ -75,7 +86,7 @@ function MediaBlock({ exercise, onError }: MediaBlockProps) {
     return (
       <Image
         source={{ uri: exercise.thumbnailUrl }}
-        style={{ height: MEDIA_HEIGHT, width: "100%" }}
+        style={{ height: 280, width: "100%" }}
         resizeMode="cover"
         onError={onError}
       />
@@ -83,9 +94,9 @@ function MediaBlock({ exercise, onError }: MediaBlockProps) {
   }
 
   return (
-    <View style={styles.mediaFallback}>
+    <View style={[styles.mediaFallback, { height: 280 }]}>
       <Text style={[styles.mediaFallbackText, { fontFamily: Typography.bodyRegular }]}>
-        Vidéo non disponible
+        Aperçu non disponible
       </Text>
     </View>
   );
@@ -259,7 +270,7 @@ export default function ExerciseYMoveDetailScreen() {
                   <Text style={[styles.stepNumber, { fontFamily: Typography.titleStrong }]}>
                     {String(index + 1).padStart(2, "0")}
                   </Text>
-                  <Text style={[styles.stepText, { color: colors.text, fontFamily: Typography.bodyRegular }]}>
+                  <Text style={[styles.stepText, { color: "#E0E0E0", fontFamily: Typography.bodyRegular }]}>
                     {step}
                   </Text>
                 </View>

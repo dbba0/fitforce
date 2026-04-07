@@ -15,6 +15,7 @@ import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
+import LottieView from "lottie-react-native";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getExerciseById } from "@/data/exercises";
 import { Colors } from "@/constants/colors";
@@ -36,6 +37,15 @@ const MUSCLE_LABELS: Record<string, string> = {
   legs: "Jambes",
 };
 
+function getLottieSource(muscles: string[]) {
+  const m = muscles.map((s) => s.toLowerCase());
+  if (m.some((x) => ["core", "abs"].includes(x)))
+    return require("@/assets/animations/exercises/silhouette_core.json");
+  if (m.some((x) => ["legs", "quads", "hamstrings", "glutes", "calves"].includes(x)))
+    return require("@/assets/animations/exercises/silhouette_lower.json");
+  return require("@/assets/animations/exercises/silhouette_upper.json");
+}
+
 function secondsToClock(total: number) {
   const safe = Math.max(0, total);
   const mm = String(Math.floor(safe / 60)).padStart(2, "0");
@@ -54,6 +64,7 @@ export default function ExerciseDetailScreen() {
   const [activeTab, setActiveTab] = useState<DetailTab>("muscle");
   const [freshVideoUrl, setFreshVideoUrl] = useState<string | null>(null);
   const [freshThumbnailUrl, setFreshThumbnailUrl] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState(false);
 
   const fetchExercise = useCallback(async (exerciseId: string) => {
     try {
@@ -109,7 +120,14 @@ export default function ExerciseDetailScreen() {
           <View style={styles.handle} />
 
           <View style={styles.headerRow}>
-            <Text style={[styles.title, { fontFamily: "Syne_800ExtraBold" }]}>{exT.name}</Text>
+            <Text
+              style={[styles.title, { fontFamily: "Syne_800ExtraBold" }]}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+              numberOfLines={2}
+            >
+              {exT.name}
+            </Text>
             <Pressable
               onPress={() => setActiveTab("tutorial")}
               style={({ pressed }) => [styles.notesBtn, { opacity: pressed ? 0.75 : 1 }]}
@@ -121,29 +139,32 @@ export default function ExerciseDetailScreen() {
           <View style={styles.mediaCard}>
             {activeTab === "muscle" ? (
               <View style={styles.visualWrap}>
-                {freshVideoUrl ?? videoUrl ? (
+                {(freshVideoUrl ?? videoUrl) && Platform.OS !== "ios" && !mediaError ? (
                   <Video
                     source={{ uri: (freshVideoUrl ?? videoUrl) as string }}
                     style={{ height: 240, borderRadius: 0 }}
                     resizeMode={ResizeMode.COVER}
-                    useNativeControls
-                    isLooping={false}
-                    onError={() => {
-                      fetchExercise(id ?? "");
-                    }}
+                    shouldPlay
+                    isLooping
+                    isMuted
+                    useNativeControls={false}
+                    onError={() => setMediaError(true)}
                   />
-                ) : freshThumbnailUrl ?? exercise.imageUrl ? (
+                ) : (freshThumbnailUrl ?? exercise.imageUrl) && !mediaError ? (
                   <Image
                     source={{ uri: (freshThumbnailUrl ?? exercise.imageUrl) as string }}
                     style={{ height: 240, width: "100%", borderRadius: 0 }}
                     resizeMode="cover"
-                    onError={() => {
-                      fetchExercise(id ?? "");
-                    }}
+                    onError={() => setMediaError(true)}
                   />
                 ) : (
-                  <View style={{ height: 240, backgroundColor: "#1A1A1A", justifyContent: "center", alignItems: "center" }}>
-                    <Text style={{ color: "#888", fontFamily: "DMSans_400Regular" }}>Vidéo non disponible</Text>
+                  <View style={{ width: "100%", height: 240, backgroundColor: "#1A1A1A", justifyContent: "center", alignItems: "center" }}>
+                    <LottieView
+                      source={getLottieSource(exercise.muscles ?? [])}
+                      autoPlay
+                      loop
+                      style={{ width: 200, height: 200 }}
+                    />
                   </View>
                 )}
               </View>
@@ -308,7 +329,7 @@ const styles = StyleSheet.create({
   },
   tutorialText: {
     flex: 1,
-    color: "#1D2130",
+    color: "#E0E0E0",
     fontSize: 14,
     lineHeight: 21,
   },
@@ -328,11 +349,10 @@ const styles = StyleSheet.create({
   },
 
   durationRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: "column",
+    alignItems: "flex-start",
     marginBottom: 20,
-    gap: 8,
+    gap: 10,
   },
   sectionTitle: {
     fontSize: 16,
@@ -357,7 +377,7 @@ const styles = StyleSheet.create({
   counterValue: {
     color: "#F8FAFC",
     fontSize: 34,
-    minWidth: 128,
+    minWidth: 80,
     textAlign: "center",
   },
 

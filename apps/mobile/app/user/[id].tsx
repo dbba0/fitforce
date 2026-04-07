@@ -49,8 +49,11 @@ export default function UserProfileScreen() {
   const { data, isLoading, isError } = useQuery<{ profile: any }>({
     queryKey: ["/api/users", userId, "profile"],
     queryFn: async () => {
+      console.log('PROFILE URL:', `/api/users/${userId}/profile`);
+      console.log('PROFILE userId:', userId);
       const res = await apiRequest("GET", `/api/users/${userId}/profile`);
       const json = await res.json();
+      console.log('PROFILE json:', JSON.stringify(json).slice(0, 300));
       return { profile: json.profile ?? json };
     },
     enabled: !!userId,

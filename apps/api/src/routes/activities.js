@@ -122,6 +122,24 @@ function toClientActivity(activity, meId = '') {
   };
 }
 
+router.get('/', authRequired, async (req, res) => {
+  try {
+    const meId = req.user._id.toString();
+    const activities = await Activity.find({ userId: req.user._id })
+      .sort({ startedAt: -1, createdAt: -1 })
+      .limit(50)
+      .populate('userId', 'fullName avatarUrl')
+      .populate('kudos.userId', 'fullName avatarUrl');
+
+    return res.json({
+      activities: activities.map((item) => toClientActivity(item, meId))
+    });
+  } catch (error) {
+    console.error('[Activities] Failed to load own activities', error);
+    return res.status(500).json({ message: 'Failed to load activities' });
+  }
+});
+
 router.post('/', authRequired, async (req, res) => {
   try {
     const body = req.body || {};
