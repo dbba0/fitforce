@@ -15,6 +15,7 @@ import * as Haptics from "expo-haptics";
 import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { Video, ResizeMode } from "expo-av";
+import LottieView from "lottie-react-native";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { getExerciseById } from "@/data/exercises";
 import { Colors } from "@/constants/colors";
@@ -35,6 +36,15 @@ const MUSCLE_LABELS: Record<string, string> = {
   core: "Core",
   legs: "Jambes",
 };
+
+function getLottieSource(muscles: string[]) {
+  const m = muscles.map((s) => s.toLowerCase());
+  if (m.some((x) => ["core", "abs"].includes(x)))
+    return require("@/assets/animations/exercises/silhouette_core.json");
+  if (m.some((x) => ["legs", "quads", "hamstrings", "glutes", "calves"].includes(x)))
+    return require("@/assets/animations/exercises/silhouette_lower.json");
+  return require("@/assets/animations/exercises/silhouette_upper.json");
+}
 
 function secondsToClock(total: number) {
   const safe = Math.max(0, total);
@@ -144,8 +154,13 @@ export default function ExerciseDetailScreen() {
                     }}
                   />
                 ) : (
-                  <View style={{ height: 240, backgroundColor: "#1A1A1A", justifyContent: "center", alignItems: "center" }}>
-                    <Text style={{ color: "#888", fontFamily: "DMSans_400Regular" }}>Vidéo non disponible</Text>
+                  <View style={{ width: "100%", height: 240, backgroundColor: "#1A1A1A", justifyContent: "center", alignItems: "center" }}>
+                    <LottieView
+                      source={getLottieSource(exercise.muscles ?? [])}
+                      autoPlay
+                      loop
+                      style={{ width: 200, height: 200 }}
+                    />
                   </View>
                 )}
               </View>
