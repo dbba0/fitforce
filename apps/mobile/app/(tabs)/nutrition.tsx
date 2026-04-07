@@ -47,6 +47,12 @@ type Meal = {
   carbs?: number;
   fat?: number;
   foods?: FoodItem[];
+  nutrition?: {
+    calories?: number;
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+  };
 };
 
 type MealPlan = {
@@ -90,16 +96,20 @@ function MacroRow({ label, value, color }: { label: string; value: string; color
 
 function MealCard({ meal }: { meal: Meal }) {
   const label = meal.name ?? meal.label ?? "Repas";
+  const cal = meal.calories ?? meal.nutrition?.calories;
+  const prot = meal.protein ?? meal.nutrition?.protein;
+  const carbs = meal.carbs ?? meal.nutrition?.carbs;
+  const fat = meal.fat ?? meal.nutrition?.fat;
   return (
     <View style={styles.mealCard}>
       <View style={styles.mealHeader}>
         <Text style={styles.mealName}>{label}</Text>
-        <Text style={styles.mealCal}>{fmt(meal.calories)} kcal</Text>
+        <Text style={styles.mealCal}>{fmt(cal)} kcal</Text>
       </View>
       <View style={styles.mealMacros}>
-        <MacroRow label="Protéines" value={`${fmt(meal.protein)}g`} color="#4CAF50" />
-        <MacroRow label="Glucides" value={`${fmt(meal.carbs)}g`} color="#2196F3" />
-        <MacroRow label="Lipides" value={`${fmt(meal.fat)}g`} color="#FF9800" />
+        <MacroRow label="Protéines" value={`${fmt(prot)}g`} color="#4CAF50" />
+        <MacroRow label="Glucides" value={`${fmt(carbs)}g`} color="#2196F3" />
+        <MacroRow label="Lipides" value={`${fmt(fat)}g`} color="#FF9800" />
       </View>
       {meal.foods && meal.foods.length > 0 && (
         <View style={styles.mealFoods}>
@@ -336,17 +346,30 @@ export default function NutritionScreen() {
             ))}
 
             {/* Total */}
-            <View style={[styles.totalCard, { backgroundColor: SURFACE }]}>
-              <Text style={[styles.totalTitle, { color: colors.text, fontFamily: Typography.bodySemiBold }]}>
-                Total journalier
-              </Text>
-              <View style={styles.totalRow}>
-                <Text style={[styles.totalVal, { color: ACCENT }]}>{fmt(mealPlan.totalCalories)} kcal</Text>
-                <Text style={[styles.totalMacro, { color: "#4CAF50" }]}>P: {fmt(mealPlan.totalProtein)}g</Text>
-                <Text style={[styles.totalMacro, { color: "#2196F3" }]}>G: {fmt(mealPlan.totalCarbs)}g</Text>
-                <Text style={[styles.totalMacro, { color: "#FF9800" }]}>L: {fmt(mealPlan.totalFat)}g</Text>
-              </View>
-            </View>
+            {(() => {
+              const meals = mealPlan.meals ?? [];
+              const totalCalories = mealPlan.totalCalories
+                ?? meals.reduce((s, m) => s + (m.calories ?? m.nutrition?.calories ?? 0), 0);
+              const totalProtein = mealPlan.totalProtein
+                ?? meals.reduce((s, m) => s + (m.protein ?? m.nutrition?.protein ?? 0), 0);
+              const totalCarbs = mealPlan.totalCarbs
+                ?? meals.reduce((s, m) => s + (m.carbs ?? m.nutrition?.carbs ?? 0), 0);
+              const totalFat = mealPlan.totalFat
+                ?? meals.reduce((s, m) => s + (m.fat ?? m.nutrition?.fat ?? 0), 0);
+              return (
+                <View style={[styles.totalCard, { backgroundColor: SURFACE }]}>
+                  <Text style={[styles.totalTitle, { color: colors.text, fontFamily: Typography.bodySemiBold }]}>
+                    Total journalier
+                  </Text>
+                  <View style={styles.totalRow}>
+                    <Text style={[styles.totalVal, { color: ACCENT }]}>{fmt(totalCalories)} kcal</Text>
+                    <Text style={[styles.totalMacro, { color: "#4CAF50" }]}>P: {fmt(totalProtein)}g</Text>
+                    <Text style={[styles.totalMacro, { color: "#2196F3" }]}>G: {fmt(totalCarbs)}g</Text>
+                    <Text style={[styles.totalMacro, { color: "#FF9800" }]}>L: {fmt(totalFat)}g</Text>
+                  </View>
+                </View>
+              );
+            })()}
           </View>
         ) : null}
 
