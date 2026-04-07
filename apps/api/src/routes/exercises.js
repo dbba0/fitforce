@@ -78,13 +78,17 @@ router.get('/:id', async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     if (!id) {
-      return res.status(400).json({ message: 'Exercise id is required' });
+      return res.status(400).json({ message: 'ID requis' });
     }
-    const data = await getExerciseById(id);
-    return res.json(data);
+    res.set('Cache-Control', 'no-store');
+    const response = await getExerciseById(id);
+    return res.json(response);
   } catch (error) {
-    console.error(`[Exercises] Failed to fetch exercise id=${req.params.id}`, error);
-    return res.status(500).json({ message: 'Failed to fetch exercise' });
+    console.error('[Exercises] detail failed:', error.message);
+    if (error.message?.includes('404')) {
+      return res.status(404).json({ message: 'Exercice non trouvé' });
+    }
+    return res.status(502).json({ message: 'Impossible de charger cet exercice' });
   }
 });
 
