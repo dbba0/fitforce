@@ -64,6 +64,7 @@ export default function ExerciseDetailScreen() {
   const [activeTab, setActiveTab] = useState<DetailTab>("muscle");
   const [freshVideoUrl, setFreshVideoUrl] = useState<string | null>(null);
   const [freshThumbnailUrl, setFreshThumbnailUrl] = useState<string | null>(null);
+  const [mediaError, setMediaError] = useState(false);
 
   const fetchExercise = useCallback(async (exerciseId: string) => {
     try {
@@ -119,7 +120,14 @@ export default function ExerciseDetailScreen() {
           <View style={styles.handle} />
 
           <View style={styles.headerRow}>
-            <Text style={[styles.title, { fontFamily: "Syne_800ExtraBold" }]}>{exT.name}</Text>
+            <Text
+              style={[styles.title, { fontFamily: "Syne_800ExtraBold" }]}
+              adjustsFontSizeToFit
+              minimumFontScale={0.6}
+              numberOfLines={2}
+            >
+              {exT.name}
+            </Text>
             <Pressable
               onPress={() => setActiveTab("tutorial")}
               style={({ pressed }) => [styles.notesBtn, { opacity: pressed ? 0.75 : 1 }]}
@@ -131,7 +139,7 @@ export default function ExerciseDetailScreen() {
           <View style={styles.mediaCard}>
             {activeTab === "muscle" ? (
               <View style={styles.visualWrap}>
-                {(freshVideoUrl ?? videoUrl) && Platform.OS !== "ios" ? (
+                {(freshVideoUrl ?? videoUrl) && Platform.OS !== "ios" && !mediaError ? (
                   <Video
                     source={{ uri: (freshVideoUrl ?? videoUrl) as string }}
                     style={{ height: 240, borderRadius: 0 }}
@@ -140,18 +148,14 @@ export default function ExerciseDetailScreen() {
                     isLooping
                     isMuted
                     useNativeControls={false}
-                    onError={() => {
-                      fetchExercise(id ?? "");
-                    }}
+                    onError={() => setMediaError(true)}
                   />
-                ) : (freshThumbnailUrl ?? exercise.imageUrl) ? (
+                ) : (freshThumbnailUrl ?? exercise.imageUrl) && !mediaError ? (
                   <Image
                     source={{ uri: (freshThumbnailUrl ?? exercise.imageUrl) as string }}
                     style={{ height: 240, width: "100%", borderRadius: 0 }}
                     resizeMode="cover"
-                    onError={() => {
-                      fetchExercise(id ?? "");
-                    }}
+                    onError={() => setMediaError(true)}
                   />
                 ) : (
                   <View style={{ width: "100%", height: 240, backgroundColor: "#1A1A1A", justifyContent: "center", alignItems: "center" }}>
@@ -345,11 +349,10 @@ const styles = StyleSheet.create({
   },
 
   durationRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: "column",
+    alignItems: "flex-start",
     marginBottom: 20,
-    gap: 8,
+    gap: 10,
   },
   sectionTitle: {
     fontSize: 16,
@@ -374,7 +377,7 @@ const styles = StyleSheet.create({
   counterValue: {
     color: "#F8FAFC",
     fontSize: 34,
-    minWidth: 128,
+    minWidth: 80,
     textAlign: "center",
   },
 
