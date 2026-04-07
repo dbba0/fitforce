@@ -58,7 +58,7 @@ type MediaBlockProps = {
 };
 
 function MediaBlock({ exercise, onError }: MediaBlockProps) {
-  if (exercise.videoUrl) {
+  if (exercise.videoUrl && Platform.OS !== "ios") {
     return (
       <Video
         source={{ uri: exercise.videoUrl }}
@@ -87,7 +87,7 @@ function MediaBlock({ exercise, onError }: MediaBlockProps) {
   return (
     <View style={[styles.mediaFallback, { height: 280 }]}>
       <Text style={[styles.mediaFallbackText, { fontFamily: Typography.bodyRegular }]}>
-        Vidéo non disponible
+        Aperçu non disponible
       </Text>
     </View>
   );
