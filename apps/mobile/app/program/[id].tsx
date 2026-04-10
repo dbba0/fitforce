@@ -1,12 +1,12 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
+  Image,
+  Modal,
+  Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
-  ScrollView,
-  Pressable,
-  useColorScheme,
-  Modal,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,19 +15,108 @@ import Animated, { FadeInDown, FadeInUp } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ExerciseCustomization, useWorkout } from "@/contexts/WorkoutContext";
-import { PROGRAMS } from "@/data/programs";
+import { PROGRAMS, Program } from "@/data/programs";
 import { EXERCISES } from "@/data/exercises";
-import { Colors } from "@/constants/colors";
-import ExerciseMedia from "@/components/ExerciseMedia";
-import { Badge, GhostButton, PrimaryButton, SectionLabel, StatBlock } from "@/components/ui";
+import { GhostButton, PrimaryButton } from "@/components/ui";
+import { Typography } from "@/constants/typography";
+import { apiRequest } from "@/lib/query-client";
 
-type EditableExercise = {
-  exerciseId: string;
-  defaultSets: number;
-  defaultReps: number | string;
-  defaultWeight?: number;
-  recommendedWeight?: number;
-};
+// ─── Figma design tokens ────────────────────────────────────────────────────
+const ACCENT = "#FF6B35";
+const BG = "#0A0A0F";
+const CARD_BG = "#1A1A1A";
+const CARD_BORDER = "rgba(255,255,255,0.08)";
+const TEXT = "#FFFFFF";
+const MUTED = "rgba(255,255,255,0.5)";
+const BADGE_BG = "rgba(255,107,53,0.2)";
+const BADGE_BORDER = "rgba(255,107,53,0.4)";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function getXpReward(calories: number): number {
+  return Math.round((calories * 1.2) / 50) * 50;
+}
+
+function getCategoryLabels(program: Program): string[] {
+  const map: Record<string, string> = {
+    fullBody: "full body",
+    hiit: "hiit",
+    abs: "core",
+    push: "push",
+    pull: "pull",
+    legs: "legs",
+    upper: "upper",
+    lower: "lower",
+    chest: "chest",
+    back: "back",
+    strength: "strength",
+    hypertrophy: "hypertrophy",
+    cardio: "cardio",
+  };
+  const cat = map[program.category] ?? program.category;
+  const tags = [cat];
+  if (program.isCardio && !tags.includes("cardio")) tags.push("cardio");
+  return tags;
+}
+
+function getSessionGoals(program: Program): string[] {
+  if (program.difficulty === "beginner") {
+    return [
+      "Build strength with progressive overload",
+      "Focus on proper form and control",
+      "Maintain consistent rest periods",
+    ];
+  }
+  if (program.difficulty === "advanced") {
+    return [
+      "Maximize muscle recruitment and power output",
+      "Train to failure on key sets",
+      "Elite performance through discipline",
+    ];
+  }
+  return [
+    "Increase intensity with compound movements",
+    "Push past plateaus with heavier loads",
+    "Minimize rest time for metabolic benefit",
+  ];
+}
+
+function formatReps(reps: number | string, sets: number): string {
+  if (typeof reps === "string") return `${sets} × ${reps}`;
+  return `${sets} × ${reps} reps`;
+}
+
+async function getThumb(name: string): Promise<string | null> {
+  const slug = name.toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+  try {
+    const r = await apiRequest("GET", `/api/exercises/${slug}`);
+    const d = await r.json();
+    return d.thumbnailUrl ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── ExerciseThumbnail ────────────────────────────────────────────────────────
+
+function ExerciseThumbnail({ name }: { name: string }) {
+  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    getThumb(name).then(setThumbUrl);
+  }, [name]);
+
+  if (thumbUrl) {
+    return <Image source={{ uri: thumbUrl }} style={styles.thumbImg} resizeMode="cover" />;
+  }
+  return (
+    <View style={styles.thumbFallback}>
+      <Ionicons name="barbell-outline" size={22} color={MUTED} />
+    </View>
+  );
+}
+
+// ─── Stepper (unchanged) ──────────────────────────────────────────────────────
 
 function Stepper({
   value,
@@ -36,7 +125,6 @@ function Stepper({
   minValue = 1,
   suffix = "",
   accentColor,
-  theme,
 }: {
   value: number;
   onDecrement: () => void;
@@ -44,19 +132,16 @@ function Stepper({
   minValue?: number;
   suffix?: string;
   accentColor: string;
-  theme: typeof Colors.dark;
 }) {
   return (
     <View style={styles.stepper}>
       <Pressable
         onPress={() => { if (value > minValue) { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onDecrement(); } }}
-        style={[styles.stepBtn, { backgroundColor: value <= minValue ? theme.border : accentColor + "20" }]}
+        style={[styles.stepBtn, { backgroundColor: value <= minValue ? CARD_BORDER : accentColor + "20" }]}
       >
-        <Ionicons name="remove" size={18} color={value <= minValue ? theme.textMuted : accentColor} />
+        <Ionicons name="remove" size={18} color={value <= minValue ? MUTED : accentColor} />
       </Pressable>
-      <Text style={[styles.stepValue, { color: theme.text, fontFamily: "Syne_700Bold" }]}>
-        {value}{suffix}
-      </Text>
+      <Text style={[styles.stepValue, { fontFamily: Typography.titleStrong }]}>{value}{suffix}</Text>
       <Pressable
         onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); onIncrement(); }}
         style={[styles.stepBtn, { backgroundColor: accentColor + "20" }]}
@@ -67,6 +152,8 @@ function Stepper({
   );
 }
 
+// ─── EditExerciseModal (unchanged logic, updated colors) ─────────────────────
+
 function EditExerciseModal({
   visible,
   onClose,
@@ -75,7 +162,6 @@ function EditExerciseModal({
   item,
   exerciseName,
   accentColor,
-  theme,
   t,
 }: {
   visible: boolean;
@@ -85,13 +171,10 @@ function EditExerciseModal({
   item: EditableExercise;
   exerciseName: string;
   accentColor: string;
-  theme: typeof Colors.dark;
   t: (key: any) => string;
 }) {
   const [sets, setSets] = useState(item.defaultSets);
-  const [reps, setReps] = useState(
-    typeof item.defaultReps === "number" ? item.defaultReps : 0
-  );
+  const [reps, setReps] = useState(typeof item.defaultReps === "number" ? item.defaultReps : 0);
   const [weight, setWeight] = useState(item.defaultWeight ?? item.recommendedWeight ?? 0);
   const isTimedRep = typeof item.defaultReps === "string";
 
@@ -115,82 +198,39 @@ function EditExerciseModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <Pressable style={styles.modalOverlay} onPress={onClose}>
-        <Pressable style={[styles.editSheet, { backgroundColor: theme.card }]} onPress={() => {}}>
-          <View style={[styles.handle, { backgroundColor: theme.border }]} />
-
-          <Text style={[styles.editTitle, { color: theme.text, fontFamily: "Syne_700Bold" }]} numberOfLines={2}>
+        <Pressable style={styles.editSheet} onPress={() => {}}>
+          <View style={styles.handle} />
+          <Text style={[styles.editTitle, { fontFamily: Typography.titleStrong }]} numberOfLines={2}>
             {exerciseName}
           </Text>
-
           <View style={styles.editRows}>
             <View style={styles.editRow}>
-              <Text style={[styles.editRowLabel, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
-                {t("sets")}
-              </Text>
-              <Stepper
-                value={sets}
-                onDecrement={() => setSets(s => Math.max(1, s - 1))}
-                onIncrement={() => setSets(s => s + 1)}
-                minValue={1}
-                accentColor={accentColor}
-                theme={theme}
-              />
+              <Text style={[styles.editRowLabel, { fontFamily: Typography.bodySemiBold }]}>{t("sets")}</Text>
+              <Stepper value={sets} onDecrement={() => setSets(s => Math.max(1, s - 1))} onIncrement={() => setSets(s => s + 1)} minValue={1} accentColor={accentColor} />
             </View>
-
             {!isTimedRep && (
               <View style={styles.editRow}>
-                <Text style={[styles.editRowLabel, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
-                  {t("reps")}
-                </Text>
-                <Stepper
-                  value={reps}
-                  onDecrement={() => setReps(r => Math.max(1, r - 1))}
-                  onIncrement={() => setReps(r => r + 1)}
-                  minValue={1}
-                  accentColor={accentColor}
-                  theme={theme}
-                />
+                <Text style={[styles.editRowLabel, { fontFamily: Typography.bodySemiBold }]}>{t("reps")}</Text>
+                <Stepper value={reps} onDecrement={() => setReps(r => Math.max(1, r - 1))} onIncrement={() => setReps(r => r + 1)} minValue={1} accentColor={accentColor} />
               </View>
             )}
-
             {hasWeight && (
               <View style={styles.editRow}>
                 <View>
-                  <Text style={[styles.editRowLabel, { color: theme.textSecondary, fontFamily: "DMSans_500Medium" }]}>
-                    {t("weightLabel")}
-                  </Text>
+                  <Text style={[styles.editRowLabel, { fontFamily: Typography.bodySemiBold }]}>{t("weightLabel")}</Text>
                   {item.recommendedWeight != null && (
-                    <Text style={[styles.recommendedText, { color: theme.textMuted, fontFamily: "DMSans_400Regular" }]}>
+                    <Text style={[styles.recommendedText, { fontFamily: Typography.body }]}>
                       Conseillé : {item.recommendedWeight} kg
                     </Text>
                   )}
                 </View>
-                <Stepper
-                  value={weight}
-                  onDecrement={() => setWeight(w => Math.max(0, Math.round((w - 2.5) * 10) / 10))}
-                  onIncrement={() => setWeight(w => Math.round((w + 2.5) * 10) / 10)}
-                  minValue={0}
-                  suffix=" kg"
-                  accentColor={accentColor}
-                  theme={theme}
-                />
+                <Stepper value={weight} onDecrement={() => setWeight(w => Math.max(0, Math.round((w - 2.5) * 10) / 10))} onIncrement={() => setWeight(w => Math.round((w + 2.5) * 10) / 10)} minValue={0} suffix=" kg" accentColor={accentColor} />
               </View>
             )}
           </View>
-
           <View style={styles.editActions}>
-            <GhostButton
-              label={t("resetToDefault")}
-              onPress={() => { onReset(); onClose(); }}
-              style={styles.resetBtn}
-              textStyle={styles.resetBtnText}
-            />
-            <PrimaryButton
-              label={t("save")}
-              onPress={() => { handleSave(); onClose(); }}
-              style={[styles.saveBtn, { backgroundColor: accentColor }]}
-              textStyle={styles.saveBtnText}
-            />
+            <GhostButton label={t("resetToDefault")} onPress={() => { onReset(); onClose(); }} style={styles.resetBtn} textStyle={styles.resetBtnText} />
+            <PrimaryButton label={t("save")} onPress={() => { handleSave(); onClose(); }} style={[styles.saveBtn, { backgroundColor: accentColor }]} textStyle={styles.saveBtnText} />
           </View>
         </Pressable>
       </Pressable>
@@ -198,39 +238,45 @@ function EditExerciseModal({
   );
 }
 
+type EditableExercise = {
+  exerciseId: string;
+  defaultSets: number;
+  defaultReps: number | string;
+  defaultWeight?: number;
+  recommendedWeight?: number;
+};
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
+
 export default function ProgramDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
   const { getCustomization, updateCustomization, resetCustomization } = useWorkout();
 
   const [editingItem, setEditingItem] = useState<EditableExercise | null>(null);
   const [editingExName, setEditingExName] = useState("");
 
   const program = PROGRAMS.find((p) => p.id === id);
+
   if (!program) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.background, justifyContent: "center", alignItems: "center" }]}>
-        <Text style={[{ color: theme.text, fontFamily: "DMSans_600SemiBold" }]}>{t("errorLoading")}</Text>
-        <Pressable onPress={() => router.back()} style={[styles.backBtnFallback, { backgroundColor: theme.accent }]}>
-          <Text style={[{ color: "#fff", fontFamily: "DMSans_600SemiBold" }]}>{t("back")}</Text>
+      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+        <Text style={[styles.errorText, { fontFamily: Typography.bodySemiBold }]}>{t("errorLoading")}</Text>
+        <Pressable onPress={() => router.back()} style={styles.backBtnFallback}>
+          <Text style={{ color: "#fff", fontFamily: Typography.bodySemiBold }}>{t("back")}</Text>
         </Pressable>
       </View>
     );
   }
 
-  const exercises = program.workouts.map((w) => ({
-    ...w,
-    exercise: EXERCISES.find((e) => e.id === w.exerciseId),
-  })).filter((w) => w.exercise != null);
+  const exercises = program.workouts
+    .map((w) => ({ ...w, exercise: EXERCISES.find((e) => e.id === w.exerciseId) }))
+    .filter((w) => w.exercise != null);
 
-  const featuredExercise = exercises[0]?.exercise;
-  const featuredExerciseTranslation = featuredExercise
-    ? featuredExercise.translations[language as keyof typeof featuredExercise.translations] ?? featuredExercise.translations.en
-    : null;
+  const xp = getXpReward(program.caloriesPerSession);
+  const categories = getCategoryLabels(program);
+  const goals = getSessionGoals(program);
 
   const handleStart = () => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
@@ -258,164 +304,116 @@ export default function ProgramDetailScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background }]}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 140 }}>
-        <View
-          style={[
-            styles.hero,
-            {
-              paddingTop: insets.top + 16,
-              backgroundColor: theme.card,
-              borderBottomColor: theme.border,
-            },
-          ]}
-        >
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={22} color={theme.text} />
+    <View style={styles.container}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+
+        {/* ── Header image area ── */}
+        <View style={[styles.headerArea, { backgroundColor: program.gradient[0] }]}>
+          {/* Gradient overlay */}
+          <View style={styles.headerOverlayTop} />
+          <View style={styles.headerOverlayBottom} />
+
+          {/* Back button */}
+          <Pressable
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); router.back(); }}
+            style={[styles.backBtn, { marginTop: insets.top + 8 }]}
+          >
+            <Ionicons name="arrow-back" size={20} color={TEXT} />
           </Pressable>
 
-          <Animated.View entering={FadeInDown.delay(100).duration(400)}>
-            <Text style={[styles.heroTag, { fontFamily: "DMSans_600SemiBold", color: theme.accent }]}>
-              {program.type === "home" ? t("homeWorkouts") : t("gymWorkouts")}
-            </Text>
-            <Text style={[styles.heroTitle, { fontFamily: "Syne_800ExtraBold", color: theme.text }]}>
-              {t(program.nameKey as any)}
-            </Text>
-            <View style={styles.heroMeta}>
-              <View style={[styles.badge, { backgroundColor: theme.cardElevated, borderColor: theme.border }]}>
-                <Text style={[styles.badgeText, { fontFamily: "DMSans_600SemiBold", color: theme.textSecondary }]}>{t(program.difficulty)}</Text>
+          {/* Content */}
+          <Animated.View entering={FadeInDown.delay(80).duration(400)} style={styles.headerContent}>
+            {/* Badges: difficulty + categories */}
+            <View style={styles.headerBadges}>
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{program.difficulty.toUpperCase()}</Text>
               </View>
-              <View style={[styles.badge, { backgroundColor: theme.cardElevated, borderColor: theme.border }]}>
-                <Ionicons name="time-outline" size={13} color={theme.textSecondary} />
-                <Text style={[styles.badgeText, { fontFamily: "DMSans_600SemiBold", color: theme.textSecondary }]}>{program.durationMin} {t("minutes")}</Text>
-              </View>
-              <View style={[styles.badge, { backgroundColor: theme.cardElevated, borderColor: theme.border }]}>
-                <Ionicons name="flame-outline" size={13} color={theme.accent} />
-                <Text style={[styles.badgeText, { fontFamily: "DMSans_600SemiBold", color: theme.textSecondary }]}>{program.caloriesPerSession} {t("kcal")}</Text>
-              </View>
+              {categories.map((cat) => (
+                <View key={cat} style={styles.catBadge}>
+                  <Text style={styles.catBadgeText}>{cat}</Text>
+                </View>
+              ))}
             </View>
 
-            {featuredExercise && featuredExerciseTranslation ? (
-              <View style={[styles.mediaPreview, { borderColor: theme.border, backgroundColor: theme.cardElevated }]}>
-                <ExerciseMedia
-                  exerciseId={featuredExercise.id}
-                  type="auto"
-                  size={126}
-                  autoPlay={false}
-                  loop={false}
-                  isActive={false}
-                  muscles={featuredExercise.muscles}
-                  title={featuredExerciseTranslation.name}
-                  subtitle={featuredExerciseTranslation.description}
-                  theme={theme}
-                  highlightColor={theme.accent}
-                />
-              </View>
-            ) : null}
+            <Text style={styles.headerTitle} numberOfLines={2}>
+              {t(program.nameKey as any)}
+            </Text>
+            <Text style={styles.headerDesc} numberOfLines={2}>
+              {getCategoryDescription(program)}
+            </Text>
           </Animated.View>
         </View>
 
         <View style={styles.content}>
-          <Animated.View entering={FadeInDown.delay(160).duration(400)} style={styles.statsRow}>
-            {[
-              { label: t("weeks"), value: program.totalWeeks, icon: "calendar-outline", color: "#4CAF7D" },
-              { label: t("perWeek"), value: `${program.sessionsPerWeek}x`, icon: "repeat-outline", color: "#2196F3" },
-              { label: t("exercises"), value: program.workouts.length, icon: "barbell-outline", color: program.gradient[0] },
-            ].map((stat, i) => (
-              <StatBlock
-                key={i}
-                value={stat.value}
-                label={stat.label}
-                iconName={stat.icon as any}
-                color={stat.color}
-                compact
-                style={styles.statCard}
-              />
+
+          {/* ── Stats 3 columns ── */}
+          <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.statsCard}>
+            <StatCol icon="time-outline" value={program.durationMin} label="MINUTES" />
+            <View style={styles.statDivider} />
+            <StatCol icon="flame-outline" value={program.caloriesPerSession} label="CALORIES" />
+            <View style={styles.statDivider} />
+            <StatCol icon="trending-up-outline" value={`+${xp}`} label="XP" />
+          </Animated.View>
+
+          {/* ── Session Goals ── */}
+          <Animated.View entering={FadeInDown.delay(180).duration(400)} style={styles.goalsCard}>
+            <Text style={styles.goalsTitle}>🎯 Session Goals</Text>
+            {goals.map((goal) => (
+              <View key={goal} style={styles.goalRow}>
+                <View style={styles.goalBullet} />
+                <Text style={styles.goalText}>{goal}</Text>
+              </View>
             ))}
           </Animated.View>
 
-          <Animated.View entering={FadeInDown.delay(220).duration(400)}>
-            <View style={styles.sectionHeaderRow}>
-              <SectionLabel style={styles.sectionLabel} textStyle={[styles.sectionTitle, { color: theme.text }]}>
-                {t("exerciseList")}
-              </SectionLabel>
-              <Text style={[styles.editHint, { color: theme.textMuted, fontFamily: "DMSans_400Regular" }]}>
-                {t("customizeExercise")}
-              </Text>
+          {/* ── Exercise list ── */}
+          <Animated.View entering={FadeInDown.delay(240).duration(400)}>
+            <View style={styles.exercisesHeader}>
+              <Text style={styles.exercisesTitle}>Exercises ({exercises.length})</Text>
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  router.push("/exercises" as any);
+                }}
+              >
+                <Text style={styles.previewAll}>Preview all</Text>
+              </Pressable>
             </View>
 
-            <View style={[styles.exerciseList, { backgroundColor: theme.card }]}>
+            <View style={styles.exerciseList}>
               {exercises.map((item, index) => {
                 const ex = item.exercise!;
                 const exT = ex.translations[language as keyof typeof ex.translations] ?? ex.translations.en;
                 const custom = getCustomization(program.id, ex.id);
-                const isCustomized = Object.keys(custom).length > 0;
-
                 const displaySets = custom.sets ?? item.sets;
                 const displayReps = custom.reps !== undefined ? custom.reps : item.reps;
-                const displayWeight = custom.weightKg ?? item.weightKg;
-                const hasWeight = (ex.recommendedWeightKg ?? 0) > 0 || (item.weightKg ?? 0) > 0;
 
                 return (
-                  <View
+                  <Pressable
                     key={ex.id}
-                    style={[
-                      styles.exerciseRow,
-                      {
-                        borderBottomColor: theme.border,
-                        borderBottomWidth: index < exercises.length - 1 ? StyleSheet.hairlineWidth : 0,
-                      },
-                    ]}
+                    onPress={() => handleExercisePress(ex.id)}
+                    onLongPress={() => handleEditPress(item)}
+                    style={({ pressed }) => [styles.exerciseCard, { opacity: pressed ? 0.85 : 1 }]}
                   >
-                    <Pressable
-                      onPress={() => handleExercisePress(ex.id)}
-                      style={styles.exerciseRowLeft}
-                    >
-                      <View style={[styles.exNumber, { backgroundColor: program.gradient[0] + "20" }]}>
-                        <Text style={[styles.exNumberText, { color: program.gradient[0], fontFamily: "Syne_700Bold" }]}>
-                          {index + 1}
-                        </Text>
-                      </View>
-                      <View style={[styles.exIconWrap, { backgroundColor: ex.imageColor + "20" }]}>
-                        <Ionicons name="barbell-outline" size={20} color={ex.imageColor} />
-                      </View>
-                      <View style={styles.exInfo}>
-                        <View style={styles.exNameRow}>
-                          <Text style={[styles.exName, { color: theme.text, fontFamily: "DMSans_600SemiBold" }]}>
-                            {exT.name}
-                          </Text>
-                          {isCustomized && (
-                            <Badge label={t("customized")} variant="ember" style={styles.customBadge} />
-                          )}
-                        </View>
-                        <View style={styles.exMetaRow}>
-                          <Text style={[styles.exMeta, { color: theme.textSecondary, fontFamily: "DMSans_400Regular" }]}>
-                            {displaySets} {t("sets")} · {displayReps}{typeof displayReps === "number" ? ` ${t("reps")}` : ""}
-                          </Text>
-                          {hasWeight && displayWeight != null && (
-                            <View style={[styles.weightBadge, { backgroundColor: theme.border }]}>
-                              <Ionicons name="barbell-outline" size={10} color={theme.textSecondary} />
-                              <Text style={[styles.weightBadgeText, { color: theme.textSecondary, fontFamily: "DMSans_600SemiBold" }]}>
-                                {displayWeight} kg
-                              </Text>
-                            </View>
-                          )}
-                        </View>
-                        {item.restSeconds > 0 && (
-                          <Text style={[styles.restText, { color: theme.textMuted, fontFamily: "DMSans_400Regular" }]}>
-                            {t("rest")}: {item.restSeconds}s
-                          </Text>
-                        )}
-                      </View>
-                    </Pressable>
+                    {/* Number */}
+                    <Text style={styles.exNum}>
+                      {String(index + 1).padStart(2, "0")}
+                    </Text>
 
-                    <Pressable
-                      onPress={() => handleEditPress(item)}
-                      style={[styles.editBtn, { backgroundColor: theme.border + "80" }]}
-                    >
-                      <Ionicons name="create-outline" size={16} color={theme.textSecondary} />
-                    </Pressable>
-                  </View>
+                    {/* Thumbnail */}
+                    <ExerciseThumbnail name={exT.name} />
+
+                    {/* Info */}
+                    <View style={styles.exInfo}>
+                      <Text style={styles.exName} numberOfLines={1}>{exT.name}</Text>
+                      <Text style={styles.exMeta}>
+                        {formatReps(displayReps, displaySets)}
+                        {item.restSeconds > 0 ? ` · ${item.restSeconds}s rest` : ""}
+                      </Text>
+                    </View>
+
+                    <Ionicons name="chevron-forward" size={16} color={MUTED} />
+                  </Pressable>
                 );
               })}
             </View>
@@ -423,32 +421,30 @@ export default function ProgramDetailScreen() {
         </View>
       </ScrollView>
 
+      {/* ── CTA Start Workout ── */}
       <Animated.View
         entering={FadeInUp.delay(300).duration(400)}
-        style={[styles.startBar, {
-          backgroundColor: theme.background,
-          paddingBottom: insets.bottom + 12,
-          borderTopColor: theme.border,
-        }]}
+        style={[styles.startBar, { paddingBottom: insets.bottom + 12 }]}
       >
-        <PrimaryButton label={t("startSession")} icon="play" onPress={handleStart} style={styles.startBtn} />
+        <Pressable
+          onPress={handleStart}
+          style={({ pressed }) => [styles.startBtn, { opacity: pressed ? 0.9 : 1 }]}
+        >
+          <Ionicons name="play" size={20} color="#fff" />
+          <Text style={styles.startBtnLabel}>Start Workout</Text>
+        </Pressable>
       </Animated.View>
 
+      {/* ── Edit modal (unchanged logic) ── */}
       {editingItem && (
         <EditExerciseModal
           visible={editingItem !== null}
           onClose={() => setEditingItem(null)}
-          onSave={(data) => {
-            updateCustomization(program.id, editingItem.exerciseId, data);
-            setEditingItem(null);
-          }}
-          onReset={() => {
-            resetCustomization(program.id, editingItem.exerciseId);
-          }}
+          onSave={(data) => { updateCustomization(program.id, editingItem.exerciseId, data); setEditingItem(null); }}
+          onReset={() => { resetCustomization(program.id, editingItem.exerciseId); }}
           item={editingItem}
           exerciseName={editingExName}
           accentColor={program.gradient[0]}
-          theme={theme}
           t={t}
         />
       )}
@@ -456,66 +452,308 @@ export default function ProgramDetailScreen() {
   );
 }
 
+// ─── StatCol sub-component ────────────────────────────────────────────────────
+
+function StatCol({
+  icon,
+  value,
+  label,
+}: {
+  icon: string;
+  value: number | string;
+  label: string;
+}) {
+  return (
+    <View style={styles.statCol}>
+      <Ionicons name={icon as any} size={20} color={ACCENT} style={{ marginBottom: 4 }} />
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+// ─── Category description ─────────────────────────────────────────────────────
+
+function getCategoryDescription(program: Program): string {
+  const map: Record<string, string> = {
+    hiit: "High-intensity intervals for maximum fat burn",
+    abs: "Core strengthening and definition",
+    fullBody: "Complete full-body conditioning",
+    push: "Build explosive upper body strength with compound movements",
+    pull: "Back and biceps strength and width",
+    legs: "Heavy compound leg work for maximum muscle and strength",
+    upper: "Upper body power and strength training",
+    lower: "Lower body strength and power",
+    chest: "Chest development and pressing strength",
+    back: "Build back thickness and width",
+    strength: "Compound movements for raw strength",
+    hypertrophy: "Muscle growth through progressive overload",
+    cardio: "Cardiovascular endurance and conditioning",
+  };
+  return map[program.category] ?? "Build strength and endurance";
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  hero: { padding: 20, paddingBottom: 28, borderBottomWidth: 1 },
+  container: { flex: 1, backgroundColor: BG },
+  errorText: { color: TEXT, fontSize: 16 },
+  backBtnFallback: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12, backgroundColor: ACCENT },
+
+  // Header
+  headerArea: { height: 220, position: "relative", justifyContent: "flex-end" },
+  headerOverlayTop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(10,10,15,0.2)",
+  },
+  headerOverlayBottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 150,
+    backgroundColor: "rgba(10,10,15,0.78)",
+  },
   backBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.06)",
-    alignItems: "center", justifyContent: "center", marginBottom: 20,
+    position: "absolute",
+    top: 0,
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
   },
-  backBtnFallback: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 12 },
-  heroTag: { fontSize: 11, textTransform: "uppercase", letterSpacing: 1.2, marginBottom: 6 },
-  heroTitle: { fontSize: 30, marginBottom: 16 },
-  heroMeta: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  badge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1 },
-  badgeText: { fontSize: 12 },
-  mediaPreview: {
-    marginTop: 12,
+  headerContent: {
+    padding: 16,
+    paddingBottom: 18,
+    zIndex: 1,
+  },
+  headerBadges: { flexDirection: "row", gap: 8, marginBottom: 8, flexWrap: "wrap" },
+  badge: {
+    backgroundColor: BADGE_BG,
     borderWidth: 1,
-    borderRadius: 18,
-    paddingHorizontal: 10,
-    paddingBottom: 10,
+    borderColor: BADGE_BORDER,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
-  content: { padding: 20 },
-  statsRow: { flexDirection: "row", gap: 10, marginBottom: 24 },
-  statCard: { flex: 1 },
-  sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 12 },
-  sectionLabel: { flexShrink: 1 },
-  sectionTitle: { fontSize: 12, letterSpacing: 0.9 },
-  editHint: { fontSize: 12 },
-  exerciseList: { borderRadius: 16, overflow: "hidden" },
-  exerciseRow: { flexDirection: "row", alignItems: "center", padding: 12, gap: 8 },
-  exerciseRowLeft: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
-  exNumber: { width: 28, height: 28, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-  exNumberText: { fontSize: 13 },
-  exIconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  badgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: ACCENT,
+    letterSpacing: 0.8,
+    fontFamily: Typography.labelTech,
+  },
+  catBadge: {
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  catBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: TEXT,
+    letterSpacing: 0.4,
+    fontFamily: Typography.labelTech,
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: TEXT,
+    lineHeight: 26,
+    marginBottom: 4,
+    fontFamily: Typography.titleStrong,
+  },
+  headerDesc: {
+    fontSize: 13,
+    color: MUTED,
+    lineHeight: 18,
+    fontFamily: Typography.body,
+  },
+
+  // Content
+  content: { padding: 16, gap: 16 },
+
+  // Stats card
+  statsCard: {
+    flexDirection: "row",
+    backgroundColor: CARD_BG,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    paddingVertical: 20,
+    paddingHorizontal: 8,
+  },
+  statCol: { flex: 1, alignItems: "center" },
+  statValue: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: TEXT,
+    fontFamily: Typography.titleStrong,
+    marginBottom: 2,
+  },
+  statLabel: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: MUTED,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    fontFamily: Typography.labelTech,
+  },
+  statDivider: {
+    width: 1,
+    backgroundColor: CARD_BORDER,
+    marginVertical: 4,
+  },
+
+  // Goals card
+  goalsCard: {
+    backgroundColor: CARD_BG,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    padding: 16,
+    gap: 10,
+  },
+  goalsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: TEXT,
+    fontFamily: Typography.bodySemiBold,
+    marginBottom: 2,
+  },
+  goalRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  goalBullet: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: ACCENT,
+    marginTop: 5,
+    flexShrink: 0,
+  },
+  goalText: {
+    flex: 1,
+    fontSize: 14,
+    color: MUTED,
+    lineHeight: 20,
+    fontFamily: Typography.body,
+  },
+
+  // Exercise list
+  exercisesHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  exercisesTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: TEXT,
+    fontFamily: Typography.titleStrong,
+  },
+  previewAll: {
+    fontSize: 14,
+    color: ACCENT,
+    fontFamily: Typography.bodySemiBold,
+  },
+  exerciseList: { gap: 10 },
+  exerciseCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: CARD_BG,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    padding: 12,
+  },
+  exNum: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: MUTED,
+    fontFamily: Typography.bodySemiBold,
+    width: 24,
+  },
+  thumbImg: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    backgroundColor: "#2A2A2A",
+  },
+  thumbFallback: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    backgroundColor: "#2A2A2A",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   exInfo: { flex: 1 },
-  exNameRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap" },
-  exName: { fontSize: 14 },
-  customBadge: { marginTop: 1 },
-  exMetaRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
-  exMeta: { fontSize: 12 },
-  weightBadge: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  weightBadgeText: { fontSize: 11 },
-  restText: { fontSize: 11, marginTop: 2 },
-  editBtn: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  startBar: {
-    position: "absolute", bottom: 0, left: 0, right: 0,
-    padding: 16, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth,
+  exName: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: TEXT,
+    fontFamily: Typography.bodySemiBold,
+    marginBottom: 3,
   },
-  startBtn: { height: 56, borderRadius: 16 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  editSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 40, gap: 20 },
-  handle: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: 4 },
-  editTitle: { fontSize: 20, textAlign: "center" },
+  exMeta: {
+    fontSize: 12,
+    color: MUTED,
+    fontFamily: Typography.body,
+  },
+
+  // CTA
+  startBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    backgroundColor: "rgba(10,10,15,0.95)",
+    borderTopWidth: 1,
+    borderTopColor: CARD_BORDER,
+  },
+  startBtn: {
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: ACCENT,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  startBtnLabel: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#fff",
+    fontFamily: Typography.bodySemiBold,
+  },
+
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end" },
+  editSheet: {
+    backgroundColor: CARD_BG,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 40,
+    gap: 20,
+  },
+  handle: { width: 36, height: 4, borderRadius: 2, backgroundColor: CARD_BORDER, alignSelf: "center", marginBottom: 4 },
+  editTitle: { fontSize: 20, textAlign: "center", color: TEXT },
   editRows: { gap: 16 },
   editRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  editRowLabel: { fontSize: 15 },
-  recommendedText: { fontSize: 11, marginTop: 2 },
+  editRowLabel: { fontSize: 15, color: MUTED },
+  recommendedText: { fontSize: 11, color: MUTED, marginTop: 2 },
   stepper: { flexDirection: "row", alignItems: "center", gap: 12 },
   stepBtn: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  stepValue: { fontSize: 18, minWidth: 54, textAlign: "center" },
+  stepValue: { fontSize: 18, minWidth: 54, textAlign: "center", color: TEXT },
   editActions: { flexDirection: "row", gap: 12 },
   resetBtn: { flex: 1, height: 48, borderRadius: 14 },
   resetBtnText: { fontSize: 14 },
