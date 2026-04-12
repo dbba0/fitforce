@@ -5,7 +5,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,36 +15,51 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useWorkout } from "@/contexts/WorkoutContext";
 import { TranslationKey } from "@/lib/i18n";
-import { Card, Chip, FeedbackToast, SkeletonCard, StateCard } from "@/components/ui";
-import { Colors } from "@/constants/colors";
+import { FeedbackToast, SkeletonCard, StateCard } from "@/components/ui";
 import { Typography } from "@/constants/typography";
 import { PROGRAMS, Program } from "@/data/programs";
 
-type Tab = "home" | "gym" | "cardio";
+// ─── Figma design tokens ────────────────────────────────────────────────────
+const ACCENT = "#FF6B35";
+const BG = "#0A0A0F";
+const CARD_BG = "#1A1A1A";
+const CARD_BORDER = "rgba(255,255,255,0.08)";
+const TEXT = "#FFFFFF";
+const MUTED = "rgba(255,255,255,0.5)";
+const BADGE_BG = "rgba(255,107,53,0.2)";
+const BADGE_BORDER = "rgba(255,107,53,0.4)";
 
-const TABS: { key: Tab; labelKey: TranslationKey }[] = [
-  { key: "home", labelKey: "workoutsTabHome" },
-  { key: "gym", labelKey: "workoutsTabGym" },
-  { key: "cardio", labelKey: "workoutsTabCardio" },
+type DifficultyFilter = "all" | "beginner" | "intermediate" | "advanced";
+
+const FILTERS: { key: DifficultyFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "beginner", label: "Beginner" },
+  { key: "intermediate", label: "Intermediate" },
+  { key: "advanced", label: "Advanced" },
 ];
 
-const PROGRAM_PRIORITIES: Record<Tab, string[]> = {
-  home: ["home_full_body_beginner", "home_hiit", "home_abs"],
-  gym: ["gym_push", "gym_upper_body", "gym_beginner_strength"],
-  cardio: ["gym_cardio_intermediate", "home_cardio_beginner", "gym_cardio_advanced"],
+const CATEGORY_DESCRIPTIONS: Record<string, string> = {
+  hiit: "High-intensity intervals for maximum fat burn",
+  abs: "Core strengthening and definition",
+  fullBody: "Complete full-body conditioning",
+  push: "Build explosive upper body strength with compound movements",
+  pull: "Back and biceps strength and width",
+  legs: "Heavy compound leg work for maximum muscle and strength",
+  upper: "Upper body power and strength training",
+  lower: "Lower body strength and power",
+  chest: "Chest development and pressing strength",
+  back: "Build back thickness and width",
+  strength: "Compound movements for raw strength",
+  hypertrophy: "Muscle growth through progressive overload",
+  cardio: "Cardiovascular endurance and conditioning",
 };
 
-function formatTemplate(template: string, values: Record<string, number>): string {
-  return Object.entries(values).reduce(
-    (acc, [key, value]) => acc.replace(new RegExp(`\\{${key}\\}`, "g"), String(value)),
-    template
-  );
+function getProgramDescription(program: Program): string {
+  return CATEGORY_DESCRIPTIONS[program.category] ?? "Build strength and endurance";
 }
 
-function getProgramAccentColor(program: Program, themeAccent: string): string {
-  if (program.difficulty === "advanced" || program.isCardio) return "#5EA8FF";
-  if (program.difficulty === "beginner") return "#2DD4A0";
-  return themeAccent;
+function getXpReward(calories: number): number {
+  return Math.round((calories * 1.2) / 50) * 50;
 }
 
 function getProgramTitle(program: Program, t: (key: TranslationKey) => string): string {
@@ -55,13 +69,11 @@ function getProgramTitle(program: Program, t: (key: TranslationKey) => string): 
   return t(program.nameKey as TranslationKey);
 }
 
-function getProgramDifficultyLabel(
-  difficulty: Program["difficulty"],
-  t: (key: TranslationKey) => string
-): string {
-  if (difficulty === "beginner") return t("workoutsDifficultyBeginnerShort");
-  if (difficulty === "advanced") return t("workoutsDifficultyAdvancedShort");
-  return t("workoutsDifficultyIntermediateShort");
+function formatTemplate(template: string, values: Record<string, number>): string {
+  return Object.entries(values).reduce(
+    (acc, [key, value]) => acc.replace(new RegExp(`\\{${key}\\}`, "g"), String(value)),
+    template
+  );
 }
 
 function getLastSessionLabel(
@@ -81,12 +93,7 @@ export default function WorkoutsScreen() {
   const { t } = useLanguage();
   const { sessions, isLoaded, customPrograms, refreshCustomPrograms } = useWorkout();
   const insets = useSafeAreaInsets();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === "dark";
-  const theme = isDark ? Colors.dark : Colors.light;
-  const [activeTab, setActiveTab] = useState<Tab>("gym");
-  const [displayPrograms, setDisplayPrograms] = useState<Program[]>([]);
-  const [isProgramsTransitioning, setIsProgramsTransitioning] = useState(true);
+  const [difficultyFilter, setDifficultyFilter] = useState<DifficultyFilter>("all");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const latestSessionByProgram = useMemo(() => {
@@ -101,31 +108,16 @@ export default function WorkoutsScreen() {
   }, [sessions]);
 
   const visiblePrograms = useMemo(() => {
-    const byTab = activeTab === "cardio"
-      ? PROGRAMS.filter((program) => !!program.isCardio)
-      : PROGRAMS.filter((program) => !program.isCardio && program.type === activeTab);
-
-    const order = new Map(PROGRAM_PRIORITIES[activeTab].map((id, index) => [id, index]));
-    return [...byTab]
-      .sort((a, b) => (order.get(a.id) ?? 999) - (order.get(b.id) ?? 999))
-      .slice(0, 3);
-  }, [activeTab]);
+    const nonCardio = PROGRAMS.filter((p) => !p.isCardio);
+    if (difficultyFilter === "all") return nonCardio;
+    return nonCardio.filter((p) => p.difficulty === difficultyFilter);
+  }, [difficultyFilter]);
 
   const sortedCustomPrograms = useMemo(() => {
     return [...customPrograms].sort(
       (a, b) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime()
     );
   }, [customPrograms]);
-
-  useEffect(() => {
-    setIsProgramsTransitioning(true);
-    const timer = setTimeout(() => {
-      setDisplayPrograms(visiblePrograms);
-      setIsProgramsTransitioning(false);
-    }, 160);
-
-    return () => clearTimeout(timer);
-  }, [visiblePrograms]);
 
   useEffect(() => {
     refreshCustomPrograms().catch((error) => {
@@ -143,7 +135,7 @@ export default function WorkoutsScreen() {
   const webBottomPadding = Platform.OS === "web" ? 34 : 0;
 
   return (
-    <View style={[styles.root, { backgroundColor: theme.background }]}>
+    <View style={[styles.root, { backgroundColor: BG }]}>
       <ScrollView
         style={styles.container}
         contentInsetAdjustmentBehavior="never"
@@ -153,220 +145,183 @@ export default function WorkoutsScreen() {
           paddingBottom: Platform.OS === "web" ? webBottomPadding + 170 : insets.bottom + 170,
         }}
       >
+        {/* ── Header ── */}
         <Animated.View entering={FadeInDown.duration(380)} style={styles.headerRow}>
-          <Text
-            style={[styles.title, { color: theme.text, fontFamily: Typography.titleStrong }]}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-            adjustsFontSizeToFit
-            minimumFontScale={0.82}
-          >
-            {t("workouts")}
-          </Text>
+          <View>
+            <Text style={styles.title}>Workouts</Text>
+            <Text style={styles.subtitle}>{visiblePrograms.length} sessions available</Text>
+          </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t("workoutsSearchAction")}
+            accessibilityLabel="Filter workouts"
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
               setToastMessage(t("workoutsSearchSoonToast"));
             }}
-            style={({ pressed }) => [
-              styles.searchButton,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                opacity: pressed ? 0.82 : 1,
-              },
-            ]}
+            style={({ pressed }) => [styles.filterButton, { opacity: pressed ? 0.82 : 1 }]}
           >
-            <Ionicons name="search-outline" size={29} color={theme.textSecondary} />
+            <Ionicons name="filter-outline" size={22} color={MUTED} />
           </Pressable>
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(40).duration(380)} style={[styles.exercisesLinkRow, { paddingHorizontal: 20 }]}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              router.push("/exercises" as any);
-            }}
-            style={({ pressed }) => [
-              styles.exercisesLink,
-              {
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                opacity: pressed ? 0.82 : 1,
-              },
-            ]}
-          >
-            <Ionicons name="barbell-outline" size={16} color={theme.accent} />
-            <Text style={[styles.exercisesLinkText, { color: theme.text, fontFamily: Typography.bodySemiBold }]}>
-              Voir tous les exercices
-            </Text>
-            <Ionicons name="chevron-forward" size={16} color={theme.textMuted} style={styles.exercisesLinkChevron} />
-          </Pressable>
+        {/* ── Difficulty filter chips ── */}
+        <Animated.View entering={FadeInDown.delay(60).duration(380)} style={styles.filtersRow}>
+          {FILTERS.map((f) => {
+            const active = difficultyFilter === f.key;
+            return (
+              <Pressable
+                key={f.key}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setDifficultyFilter(f.key);
+                }}
+                style={[
+                  styles.filterChip,
+                  active ? styles.filterChipActive : styles.filterChipInactive,
+                ]}
+              >
+                <Text style={[styles.filterChipLabel, { color: active ? TEXT : MUTED }]}>
+                  {f.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(60).duration(380)} style={styles.tabsRow}>
-          {TABS.map((tab) => (
-            <Chip
-              key={tab.key}
-              label={t(tab.labelKey)}
-              selected={activeTab === tab.key}
-              selectedColor={theme.accent}
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setActiveTab(tab.key);
-              }}
-              style={styles.tabChip}
-              textStyle={styles.tabChipLabel}
-            />
-          ))}
-        </Animated.View>
-
+        {/* ── Program cards ── */}
         <View style={styles.programsWrap}>
-          {!isLoaded || isProgramsTransitioning
+          {!isLoaded
             ? Array.from({ length: 3 }).map((_, idx) => (
-                <SkeletonCard key={`workout-skeleton-${idx}`} height={190} style={styles.programSkeleton} />
+                <SkeletonCard key={`workout-skeleton-${idx}`} height={280} style={styles.programSkeleton} />
               ))
-            : displayPrograms.length === 0 ? (
+            : visiblePrograms.length === 0 ? (
               <StateCard
                 title={t("workoutsEmptyTitle")}
                 description={t("workoutsEmptyDescription")}
-                actionLabel={t("workoutsEmptyAction")}
-                onActionPress={() => setActiveTab("gym")}
+                actionLabel="Show all"
+                onActionPress={() => setDifficultyFilter("all")}
                 style={styles.workoutStateCard}
               />
             ) : (
-              displayPrograms.map((program, index) => {
-            const accentColor = getProgramAccentColor(program, theme.accent);
-            const lastSessionLabel = getLastSessionLabel(
-              latestSessionByProgram.get(program.id),
-              t
-            );
+              visiblePrograms.map((program, index) => {
+                const title = getProgramTitle(program, t);
+                const description = getProgramDescription(program);
+                const xp = getXpReward(program.caloriesPerSession);
+                const lastSessionLabel = getLastSessionLabel(
+                  latestSessionByProgram.get(program.id),
+                  t
+                );
 
-            return (
-              <Animated.View
-                key={program.id}
-                entering={FadeInDown.delay(120 + index * 70).duration(420)}
-              >
-                <Card
-                  variant="hero"
-                  borderLeftColor={accentColor}
-                  borderLeftWidth={4}
-                  onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-                    if (program.isCardio) {
-                      router.push({ pathname: "/cardio/[id]", params: { id: program.id } });
-                    } else {
-                      router.push({ pathname: "/program/[id]", params: { id: program.id } });
-                    }
-                  }}
-                  style={[styles.programCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-                >
-                  <View style={styles.programTop}>
-                    <Text style={[styles.programTitle, { color: theme.text, fontFamily: Typography.titleStrong }]}>
-                      {getProgramTitle(program, t)}
-                    </Text>
-                    <View style={[styles.levelBadge, { backgroundColor: `${accentColor}20` }]}>
-                      <Text style={[styles.levelBadgeText, { color: accentColor, fontFamily: Typography.labelTech }]}>
-                        {getProgramDifficultyLabel(program.difficulty, t)}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.programMetaRow}>
-                    <Ionicons name="calendar-outline" size={13} color={theme.textMuted} />
-                    <Text
-                      style={[styles.programMeta, { color: theme.textSecondary, fontFamily: Typography.body }]}
-                      numberOfLines={1}
+                return (
+                  <Animated.View
+                    key={program.id}
+                    entering={FadeInDown.delay(100 + index * 60).duration(420)}
+                  >
+                    <Pressable
+                      onPress={() => {
+                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                        if (program.isCardio) {
+                          router.push({ pathname: "/cardio/[id]", params: { id: program.id } });
+                        } else {
+                          router.push({ pathname: "/program/[id]", params: { id: program.id } });
+                        }
+                      }}
+                      style={({ pressed }) => [styles.card, { opacity: pressed ? 0.94 : 1 }]}
                     >
-                      {program.totalWeeks} {t("weeks")} · {program.sessionsPerWeek}x{t("workoutsPerWeekSuffix")} ·{" "}
-                      {program.type === "home" ? t("workoutsTabHome") : t("workoutsTabGym")}
-                    </Text>
-                  </View>
+                      {/* ── Image / gradient area ── */}
+                      <View style={[styles.cardImageArea, { backgroundColor: program.gradient[0] }]}>
+                        {/* Simulated gradient overlay: transparent top → dark bottom */}
+                        <View style={styles.cardGradientTop} />
+                        <View style={styles.cardGradientBottom} />
 
-                  <View style={styles.programStats}>
-                    <View style={styles.statItem}>
-                      <Ionicons name="time-outline" size={14} color={theme.textMuted} />
-                      <Text style={[styles.statText, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}>
-                        {program.durationMin} {t("minutes")}
-                      </Text>
-                    </View>
-                    <View style={styles.statItem}>
-                      <Ionicons name="flame-outline" size={15} color={theme.accent} />
-                      <Text style={[styles.statText, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}>
-                        {program.caloriesPerSession} {t("kcal")}
-                      </Text>
-                    </View>
-                    {lastSessionLabel ? (
-                      <View style={styles.statItem}>
-                        <Ionicons name="refresh-outline" size={14} color={theme.textMuted} />
-                        <Text
-                          style={[styles.lastSessionText, { color: theme.textMuted, fontFamily: Typography.bodyRegular }]}
-                          numberOfLines={1}
-                        >
-                          {t("workoutsLastSessionPrefix")} {lastSessionLabel}
-                        </Text>
+                        <View style={styles.cardImageContent}>
+                          {/* Badge */}
+                          <View style={styles.badge}>
+                            <Text style={styles.badgeText}>
+                              {program.difficulty.toUpperCase()}
+                            </Text>
+                          </View>
+
+                          {/* Title + description */}
+                          <Text style={styles.cardTitle} numberOfLines={2}>
+                            {title}
+                          </Text>
+                          <Text style={styles.cardDesc} numberOfLines={2}>
+                            {description}
+                          </Text>
+
+                          {/* Stats row */}
+                          <View style={styles.statsRow}>
+                            <Text style={styles.statChip}>⏱ {program.durationMin} min</Text>
+                            <Text style={styles.statDot}>·</Text>
+                            <Text style={styles.statChip}>🔥 {program.caloriesPerSession} cal</Text>
+                            <Text style={styles.statDot}>·</Text>
+                            <Text style={styles.statChip}>↗ +{xp} XP</Text>
+                          </View>
+
+                          {lastSessionLabel ? (
+                            <Text style={styles.lastSession}>
+                              {t("workoutsLastSessionPrefix")} {lastSessionLabel}
+                            </Text>
+                          ) : null}
+                        </View>
                       </View>
-                    ) : null}
-                  </View>
-                </Card>
-              </Animated.View>
-            );
-          }))}
+
+                      {/* ── Card bottom: exercise count + Start ── */}
+                      <View style={styles.cardBottom}>
+                        <View style={styles.exerciseCountRow}>
+                          <Ionicons name="barbell-outline" size={16} color={MUTED} />
+                          <Text style={styles.exerciseCountText}>
+                            {program.workouts.length} exercises
+                          </Text>
+                        </View>
+                        <View style={styles.startRow}>
+                          <Text style={styles.startLabel}>Start</Text>
+                          <Ionicons name="chevron-forward" size={16} color={ACCENT} />
+                        </View>
+                      </View>
+                    </Pressable>
+                  </Animated.View>
+                );
+              })
+            )}
         </View>
 
+        {/* ── Custom programs section ── */}
         <Animated.View entering={FadeInDown.delay(360).duration(420)} style={styles.customProgramsSection}>
-          <Text style={[styles.customProgramsTitle, { color: theme.textMuted, fontFamily: Typography.labelTech }]}>
+          <Text style={styles.customProgramsTitle}>
             {t("workoutsCustomPrograms").toUpperCase()}
           </Text>
 
-          <Card
+          <Pressable
             onPress={() => {
               Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
               router.push("/builder");
             }}
-            style={[styles.buildCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+            style={({ pressed }) => [styles.buildCard, { opacity: pressed ? 0.84 : 1 }]}
           >
             <View style={styles.buildCardContent}>
-              <View style={[styles.buildIconWrap, { backgroundColor: `${theme.accent}2A` }]}>
-                <Ionicons name="add" size={32} color={theme.accent} />
+              <View style={styles.buildIconWrap}>
+                <Ionicons name="add" size={32} color={ACCENT} />
               </View>
-              <Text style={[styles.buildCardText, { color: theme.textSecondary, fontFamily: Typography.bodySemiBold }]}>
-                {t("workoutsBuildNewProgram")}
-              </Text>
+              <Text style={styles.buildCardText}>{t("workoutsBuildNewProgram")}</Text>
             </View>
-          </Card>
+          </Pressable>
 
           {sortedCustomPrograms.length > 0 ? (
             <View style={styles.customProgramList}>
               {sortedCustomPrograms.map((program) => {
                 const exercisesCount = program.days.reduce((acc, day) => acc + day.exercises.length, 0);
                 return (
-                  <Card
+                  <View
                     key={program.id}
-                    style={[
-                      styles.customProgramCard,
-                      {
-                        backgroundColor: theme.card,
-                        borderColor: theme.border,
-                        borderLeftColor: `${theme.accent}88`,
-                      },
-                    ]}
+                    style={styles.customProgramCard}
                   >
-                    <Text style={[styles.customProgramTitle, { color: theme.text, fontFamily: Typography.title }]}>
-                      {program.title}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.customProgramMeta,
-                        { color: theme.textSecondary, fontFamily: Typography.bodyRegular },
-                      ]}
-                    >
+                    <Text style={styles.customProgramTitle}>{program.title}</Text>
+                    <Text style={styles.customProgramMeta}>
                       {`${program.days.length} ${t("days")} · ${exercisesCount} ${t("exercises")} · ${program.estimatedMinutes} ${t("minutes")}`}
                     </Text>
-                  </Card>
+                  </View>
                 );
               })}
             </View>
@@ -374,6 +329,7 @@ export default function WorkoutsScreen() {
         </Animated.View>
       </ScrollView>
 
+      {/* ── FAB ── */}
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={t("workoutsFabNewProgram")}
@@ -384,7 +340,6 @@ export default function WorkoutsScreen() {
         style={({ pressed }) => [
           styles.fab,
           {
-            backgroundColor: theme.accent,
             opacity: pressed ? 0.84 : 1,
             bottom: Platform.OS === "web" ? 118 : insets.bottom + 78,
           },
@@ -407,111 +362,194 @@ export default function WorkoutsScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   container: { flex: 1 },
+
+  // Header
   headerRow: {
     paddingHorizontal: 20,
-    marginBottom: 20,
+    marginBottom: 16,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     justifyContent: "space-between",
   },
   title: {
-    flexShrink: 1,
-    marginRight: 12,
-    fontSize: 30,
-    letterSpacing: -0.8,
-    lineHeight: 32,
+    fontSize: 24,
+    fontWeight: "700",
+    color: TEXT,
+    letterSpacing: -0.5,
+    fontFamily: Typography.titleStrong,
   },
-  searchButton: {
-    width: 58,
-    height: 58,
-    borderRadius: 18,
+  subtitle: {
+    fontSize: 13,
+    color: MUTED,
+    marginTop: 2,
+    fontFamily: Typography.body,
+  },
+  filterButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: CARD_BG,
     borderWidth: 1,
+    borderColor: CARD_BORDER,
     alignItems: "center",
     justifyContent: "center",
   },
-  tabsRow: {
+
+  // Filters
+  filtersRow: {
     paddingHorizontal: 20,
     flexDirection: "row",
     gap: 8,
     marginBottom: 20,
+    flexWrap: "wrap",
   },
-  tabChip: {
-    paddingHorizontal: 22,
-    paddingVertical: 12,
-    borderRadius: 23,
+  filterChip: {
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+    borderRadius: 999,
   },
-  tabChipLabel: {
-    fontSize: 16,
+  filterChipActive: {
+    backgroundColor: ACCENT,
+  },
+  filterChipInactive: {
+    backgroundColor: CARD_BG,
+  },
+  filterChipLabel: {
+    fontSize: 14,
+    fontWeight: "600",
     fontFamily: Typography.bodySemiBold,
   },
+
+  // Programs list
   programsWrap: {
     paddingHorizontal: 20,
-    gap: 14,
+    gap: 16,
   },
   workoutStateCard: {
     borderRadius: 24,
     marginTop: 6,
   },
   programSkeleton: {
-    borderRadius: 30,
+    borderRadius: 24,
   },
-  programCard: {
-    borderRadius: 30,
-    padding: 22,
+
+  // Card
+  card: {
+    borderRadius: 24,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    backgroundColor: CARD_BG,
   },
-  programTop: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 12,
+
+  // Card image area (gradient header)
+  cardImageArea: {
+    height: 200,
+    position: "relative",
+    justifyContent: "flex-end",
+  },
+  cardGradientTop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(10,10,15,0.15)",
+  },
+  cardGradientBottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 140,
+    backgroundColor: "rgba(10,10,15,0.72)",
+  },
+  cardImageContent: {
+    padding: 16,
+    paddingBottom: 14,
+  },
+  badge: {
+    alignSelf: "flex-start",
+    backgroundColor: BADGE_BG,
+    borderWidth: 1,
+    borderColor: BADGE_BORDER,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
     marginBottom: 8,
   },
-  programTitle: {
-    flex: 1,
-    fontSize: 24,
-    lineHeight: 26,
+  badgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: ACCENT,
+    letterSpacing: 0.8,
+    fontFamily: Typography.labelTech,
   },
-  programMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 10,
+  cardTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: TEXT,
+    marginBottom: 4,
+    lineHeight: 24,
+    fontFamily: Typography.titleStrong,
   },
-  levelBadge: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  levelBadgeText: {
-    fontSize: 14,
-    letterSpacing: 0.4,
-  },
-  programMeta: {
-    flex: 1,
+  cardDesc: {
     fontSize: 13,
+    color: MUTED,
+    marginBottom: 10,
+    lineHeight: 18,
+    fontFamily: Typography.body,
   },
-  programStats: {
+  statsRow: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "nowrap",
-    rowGap: 8,
-    columnGap: 12,
-    minWidth: 0,
-  },
-  statItem: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexWrap: "wrap",
     gap: 4,
-    minWidth: 0,
-    flexShrink: 1,
   },
-  statText: {
+  statChip: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.8)",
+    fontFamily: Typography.bodyRegular,
+  },
+  statDot: {
+    fontSize: 12,
+    color: MUTED,
+  },
+  lastSession: {
+    fontSize: 11,
+    color: MUTED,
+    marginTop: 6,
+    fontFamily: Typography.bodyRegular,
+  },
+
+  // Card bottom
+  cardBottom: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: CARD_BG,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  exerciseCountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  exerciseCountText: {
     fontSize: 14,
+    color: MUTED,
+    fontFamily: Typography.bodyRegular,
   },
-  lastSessionText: {
-    fontSize: 14,
-    flexShrink: 1,
+  startRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
   },
+  startLabel: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: ACCENT,
+    fontFamily: Typography.bodySemiBold,
+  },
+
+  // Custom programs
   customProgramsSection: {
     marginTop: 28,
     marginHorizontal: 20,
@@ -520,11 +558,17 @@ const styles = StyleSheet.create({
   customProgramsTitle: {
     fontSize: 11,
     letterSpacing: 1.8,
+    color: MUTED,
+    fontFamily: Typography.labelTech,
   },
   buildCard: {
-    minHeight: 110,
+    backgroundColor: CARD_BG,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
     borderRadius: 28,
+    minHeight: 110,
     paddingHorizontal: 20,
+    justifyContent: "center",
   },
   buildCardContent: {
     flexDirection: "row",
@@ -535,6 +579,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 22,
+    backgroundColor: "rgba(255,107,53,0.16)",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -542,51 +587,44 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     lineHeight: 22,
+    color: "rgba(255,255,255,0.8)",
+    fontFamily: Typography.bodySemiBold,
   },
   customProgramList: {
     gap: 10,
   },
   customProgramCard: {
-    borderRadius: 20,
+    backgroundColor: CARD_BG,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
     borderLeftWidth: 3,
+    borderLeftColor: `${ACCENT}88`,
+    borderRadius: 20,
     paddingVertical: 12,
     paddingHorizontal: 14,
   },
   customProgramTitle: {
     fontSize: 16,
     lineHeight: 20,
+    color: TEXT,
+    fontFamily: Typography.title,
   },
   customProgramMeta: {
     marginTop: 4,
     fontSize: 13,
     lineHeight: 18,
+    color: MUTED,
+    fontFamily: Typography.bodyRegular,
   },
-  exercisesLinkRow: {
-    marginBottom: 16,
-  },
-  exercisesLink: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderWidth: 1,
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-  },
-  exercisesLinkText: {
-    flex: 1,
-    fontSize: 15,
-    lineHeight: 20,
-  },
-  exercisesLinkChevron: {
-    marginLeft: "auto",
-  },
+
+  // FAB
   fab: {
     position: "absolute",
     right: 24,
     width: 76,
     height: 76,
     borderRadius: 38,
+    backgroundColor: ACCENT,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#F55F2B",
