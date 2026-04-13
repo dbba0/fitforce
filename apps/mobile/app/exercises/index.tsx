@@ -26,7 +26,7 @@ type Exercise = {
   id: string;
   name: string;
   muscleGroup?: string;
-  exerciseType?: string;
+  exerciseType?: string | string[];
   thumbnailUrl?: string | null;
 };
 
@@ -36,9 +36,11 @@ type ExercisesResponse = {
   total?: number;
 };
 
+type MuscleGroupItem = string | { slug?: string; name?: string; exerciseCount?: number };
+
 type MuscleGroupsResponse = {
-  muscleGroups?: string[];
-  data?: string[];
+  muscleGroups?: MuscleGroupItem[];
+  data?: MuscleGroupItem[];
 };
 
 function buildExercisesUrl(muscleGroup: string | null, page: number): string {
@@ -54,8 +56,18 @@ function extractExercises(payload: ExercisesResponse): Exercise[] {
   return raw.filter((item) => !!item?.id);
 }
 
-function extractMuscleGroups(payload: MuscleGroupsResponse): string[] {
-  return payload.muscleGroups ?? payload.data ?? [];
+function extractMuscleGroups(payload: any): string[] {
+  const raw = payload?.muscleGroups
+    ?? payload?.data
+    ?? payload?.items
+    ?? [];
+
+  if (!Array.isArray(raw)) return [];
+
+  return raw.map((item: any) => {
+    if (typeof item === "string") return item;
+    return String(item?.slug ?? item?.name ?? "");
+  }).filter(Boolean);
 }
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
@@ -112,9 +124,14 @@ function ExerciseCard({ item, refreshedUrl, onImageError, onPress }: ExerciseCar
             </View>
           ) : null}
           {item.exerciseType ? (
-            <View style={styles.tag}>
-              <Text style={styles.tagText}>{item.exerciseType}</Text>
-            </View>
+            (Array.isArray(item.exerciseType)
+              ? item.exerciseType
+              : [item.exerciseType]
+            ).map((type, i) => (
+              <View key={i} style={styles.tag}>
+                <Text style={styles.tagText}>{type}</Text>
+              </View>
+            ))
           ) : null}
         </View>
       </View>
@@ -276,10 +293,10 @@ export default function ExercisesScreen() {
               onPress={() => handleSelectGroup(null)}
               selectedColor="#FF5500"
             />
-            {muscleGroups.map((group) => (
+            {muscleGroups.map((group: string) => (
               <Chip
-                key={group}
-                label={group}
+                key={String(group)}
+                label={String(group)}
                 selected={selectedGroup === group}
                 onPress={() => handleSelectGroup(group)}
                 selectedColor="#FF5500"

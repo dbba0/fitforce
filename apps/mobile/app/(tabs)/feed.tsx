@@ -182,18 +182,34 @@ export default function FeedScreen() {
     enabled: !isGuest,
   });
 
-  const activities = useMemo(() => {
+  const feedActivities = useMemo(() => {
     const base = data?.activities ?? [];
     return base.map((activity) => {
       const override = optimisticById[activity.id];
       if (!override) return activity;
-      return {
-        ...activity,
-        likedByMe: override.likedByMe,
-        kudosCount: override.kudosCount,
-      };
+      return { ...activity, likedByMe: override.likedByMe, kudosCount: override.kudosCount };
     });
   }, [data?.activities, optimisticById]);
+
+  const feedEmpty = !isLoading && feedActivities.length === 0;
+
+  const { data: myData } = useQuery<FeedResponse>({
+    queryKey: ["/api/activities"],
+    enabled: !isGuest && feedEmpty,
+  });
+
+  const myActivities = useMemo(() => {
+    if (!feedEmpty) return [];
+    const base = myData?.activities ?? [];
+    return base.map((activity) => {
+      const override = optimisticById[activity.id];
+      if (!override) return activity;
+      return { ...activity, likedByMe: override.likedByMe, kudosCount: override.kudosCount };
+    });
+  }, [myData?.activities, optimisticById, feedEmpty]);
+
+  const activities = feedEmpty && myActivities.length > 0 ? myActivities : feedActivities;
+  const isShowingOwnActivities = feedEmpty && myActivities.length > 0;
 
   useEffect(() => {
     if (!toastMessage) return;
@@ -281,13 +297,17 @@ export default function FeedScreen() {
         }
         ListHeaderComponent={
           <View style={styles.headerWrap}>
-            <SectionLabel>{t("activityFeedSectionLabel")}</SectionLabel>
+            <SectionLabel>
+              {isShowingOwnActivities ? "MES ACTIVITÉS" : t("activityFeedSectionLabel")}
+            </SectionLabel>
             <Text style={[styles.title, { color: colors.text, fontFamily: Typography.titleStrong }]}>
-              {t("activityFeedTitle")}
+              {isShowingOwnActivities ? "Mes activités" : t("activityFeedTitle")}
             </Text>
-            <Text style={[styles.subtitle, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
-              {t("activityFeedSubtitle")}
-            </Text>
+            {!isShowingOwnActivities && (
+              <Text style={[styles.subtitle, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
+                {t("activityFeedSubtitle")}
+              </Text>
+            )}
           </View>
         }
         renderItem={({ item }) => {
@@ -427,17 +447,16 @@ export default function FeedScreen() {
           ) : (
             <View style={styles.emptyState}>
               <Text style={[styles.emptyTitle, { color: colors.text, fontFamily: Typography.titleStrong }]}>
-                {t("feedEmptyFollowTitle")}
+                {"Aucune activité pour l'instant"}
               </Text>
               <Text style={[styles.emptySubtitle, { color: colors.textSecondary, fontFamily: Typography.bodyRegular }]}>
-                {t("feedEmptyFollowSubtitle")}
+                {"Commence une activité ou suis des athlètes pour voir leur feed ici."}
               </Text>
               <PrimaryButton
-                label={t("feedExploreAthletes")}
-                onPress={() => router.push("/users/explore" as any)}
+                label={"Démarrer une activité"}
+                onPress={() => router.push("/(tabs)/track" as any)}
                 style={styles.exploreButton}
               />
-              <PulseSkeletons />
             </View>
           )
         }

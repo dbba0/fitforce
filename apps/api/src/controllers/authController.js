@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Goal = require('../models/Goal');
 const { signToken, hashPassword, verifyPassword } = require('../utils/auth');
+const { seedActivitiesIfEmpty } = require('../data/seedActivities');
 
 async function register(req, res) {
   const data = req.validatedBody;
@@ -18,6 +19,9 @@ async function register(req, res) {
     weeklyCaloriesTarget: 1500,
     targetWeightKg: data.weightKg
   });
+
+  // Seed test activities after first user registration (dev / MongoMemoryServer)
+  seedActivitiesIfEmpty().catch(() => {});
 
   const token = signToken(user);
   return res.status(201).json({ token, user });

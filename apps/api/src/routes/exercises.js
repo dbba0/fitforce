@@ -19,7 +19,7 @@ function pickQueryParams(query, allowed) {
 }
 
 // GET /api/exercises
-router.get('/', async (req, res) => {
+router.get('/', authRequired, async (req, res) => {
   try {
     const qs = pickQueryParams(req.query, ALLOWED_EXERCISE_PARAMS);
     const data = await getExercises(qs);
@@ -31,10 +31,19 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/exercises/muscle-groups
-router.get('/muscle-groups', async (_req, res) => {
+router.get('/muscle-groups', authRequired, async (_req, res) => {
   try {
-    const data = await getMuscleGroups();
-    return res.json(data);
+    const ymoveResponse = await getMuscleGroups();
+    const raw = ymoveResponse.data
+      ?? ymoveResponse.muscleGroups
+      ?? ymoveResponse.items
+      ?? (Array.isArray(ymoveResponse) ? ymoveResponse : []);
+
+    const groups = raw
+      .map((item) => (typeof item === 'string' ? item : (item.slug ?? item.name ?? '')))
+      .filter(Boolean);
+
+    return res.json({ muscleGroups: groups });
   } catch (error) {
     console.error('[Exercises] Failed to fetch muscle groups', error);
     return res.status(500).json({ message: 'Failed to fetch muscle groups' });
@@ -42,7 +51,7 @@ router.get('/muscle-groups', async (_req, res) => {
 });
 
 // GET /api/exercises/types
-router.get('/types', async (_req, res) => {
+router.get('/types', authRequired, async (_req, res) => {
   try {
     const data = await getExerciseTypes();
     return res.json(data);
@@ -53,7 +62,7 @@ router.get('/types', async (_req, res) => {
 });
 
 // GET /api/exercises/workout/generate
-router.get('/workout/generate', async (req, res) => {
+router.get('/workout/generate', authRequired, async (req, res) => {
   try {
     const qs = pickQueryParams(req.query, ALLOWED_WORKOUT_PARAMS);
     const data = await generateWorkout(qs);
@@ -65,17 +74,21 @@ router.get('/workout/generate', async (req, res) => {
 });
 
 // GET /api/exercises/:id  (no cache — videoUrl expires after 48h)
-router.get('/:id', authRequired, async (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const id = String(req.params.id || '').trim();
     if (!id) {
-      return res.status(400).json({ message: 'Exercise id is required' });
+      return res.status(400).json({ message: 'ID requis' });
     }
-    const data = await getExerciseById(id);
-    return res.json(data);
+    res.set('Cache-Control', 'no-store');
+    const response = await getExerciseById(id);
+    return res.json(response);
   } catch (error) {
-    console.error(`[Exercises] Failed to fetch exercise id=${req.params.id}`, error);
-    return res.status(500).json({ message: 'Failed to fetch exercise' });
+    console.error('[Exercises] detail failed:', error.message);
+    if (error.message?.includes('404')) {
+      return res.status(404).json({ message: 'Exercice non trouvé' });
+    }
+    return res.status(502).json({ message: 'Impossible de charger cet exercice' });
   }
 });
 

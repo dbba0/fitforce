@@ -29,6 +29,7 @@ const socialRoutes = require('./routes/socialRoutes');
 const privacyRoutes = require('./routes/privacyRoutes');
 const exercisesRoutes = require('./routes/exercises');
 const activitiesRoutes = require('./routes/activities');
+const nutritionYmoveRoutes = require('./routes/nutritionYmove');
 
 const app = express();
 
@@ -83,6 +84,7 @@ app.use('/api', socialRoutes);
 app.use('/api/privacy', privacyRoutes);
 app.use('/api/exercises', exercisesRoutes);
 app.use('/api/activities', activitiesRoutes);
+app.use('/api/nutrition-ymove', nutritionYmoveRoutes);
 
 app.use(errorHandler);
 

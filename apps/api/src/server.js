@@ -1,10 +1,12 @@
 const app = require('./app');
 const { connectDb, closeDb } = require('./config/db');
 const { port } = require('./config/env');
+const { seedActivitiesIfEmpty } = require('./data/seedActivities');
 
 (async function bootstrap() {
   try {
     await connectDb();
+    await seedActivitiesIfEmpty();
     const server = app.listen(port, () => {
       // eslint-disable-next-line no-console
       console.log(`API listening on port ${port}`);
