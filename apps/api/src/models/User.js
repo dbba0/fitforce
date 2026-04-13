@@ -18,6 +18,7 @@ const userSchema = new mongoose.Schema(
       default: 'recomposition'
     },
     isPremium: { type: Boolean, default: false },
+    xp: { type: Number, default: 0 },
     streakDays: { type: Number, default: 0 },
     lastWorkoutDate: { type: Date },
     following: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

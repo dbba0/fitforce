@@ -9,6 +9,16 @@ const router = express.Router();
 
 router.patch('/profile', authRequired, updateProfile);
 
+router.get('/me/stats', authRequired, async (req, res) => {
+  const user = await User.findById(req.user._id).select('xp streakDays lastWorkoutDate');
+  if (!user) return res.status(404).json({ message: 'User not found' });
+  return res.json({
+    xp: user.xp ?? 0,
+    streakDays: user.streakDays ?? 0,
+    lastWorkoutDate: user.lastWorkoutDate ?? null
+  });
+});
+
 router.post('/:id/follow', authRequired, async (req, res) => {
   const targetId = String(req.params.id || '').trim();
   const meId = req.user._id.toString();
