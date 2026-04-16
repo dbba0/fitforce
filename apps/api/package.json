@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",
-    "seed": "node src/data/seed.js"
+    "seed": "node src/data/seed.js",
+    "seed:gyms": "node src/data/seedGyms.js",
+    "seed:gyms:reset": "node src/data/seedGyms.js --reset"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
