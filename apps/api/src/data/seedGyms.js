@@ -238,7 +238,40 @@ const GYMS = [
   },
 ];
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── Export pour server.js (dev / MongoMemoryServer) ─────────────────────────
+
+/**
+ * Appelé au démarrage du serveur — insère les salles si la collection est vide.
+ * Ne nécessite pas de connexion séparée (Mongoose est déjà connecté).
+ */
+async function seedGymsIfEmpty() {
+  const count = await Gym.countDocuments();
+  if (count > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[seedGyms] ${count} salle(s) déjà en base, skip.`);
+    return;
+  }
+
+  try {
+    await Gym.collection.createIndex({ location: '2dsphere' });
+  } catch {
+    // L'index existe peut-être déjà
+  }
+
+  for (const gym of GYMS) {
+    await Gym.findOneAndUpdate(
+      { name: gym.name, city: gym.city },
+      { $set: gym },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+  }
+  // eslint-disable-next-line no-console
+  console.log(`[seedGyms] ${GYMS.length} salles de sport insérées.`);
+}
+
+module.exports = { seedGymsIfEmpty };
+
+// ─── Mode CLI standalone ──────────────────────────────────────────────────────
 
 async function main() {
   const isReset = process.argv.includes('--reset');
@@ -290,8 +323,11 @@ async function main() {
   await mongoose.disconnect();
 }
 
-main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('[seedGyms] Erreur :', err.message);
-  process.exit(1);
-});
+// Ne s'exécute que si lancé directement (node seedGyms.js), pas via require()
+if (require.main === module) {
+  main().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error('[seedGyms] Erreur :', err.message);
+    process.exit(1);
+  });
+}
