@@ -15,6 +15,7 @@ require('./models/Subscription');
 require('./models/Session');
 require('./models/Post');
 require('./models/Activity');
+require('./models/Gym');
 
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -85,6 +86,7 @@ app.use('/api/privacy', privacyRoutes);
 app.use('/api/exercises', exercisesRoutes);
 app.use('/api/activities', activitiesRoutes);
 app.use('/api/nutrition-ymove', nutritionYmoveRoutes);
+app.use('/api/gyms', require('./routes/gyms'));
 
 app.use(errorHandler);
 
